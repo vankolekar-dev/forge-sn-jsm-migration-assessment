@@ -1,0 +1,13 @@
+{
+  "name": "@snjsm/analyser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ServiceNow evidence → outcomes → capability match → fit/gap → Migration Blueprint and assessment report",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@snjsm/collector": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "@snjsm/reference": "0.1.0"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "rootDir": ".", "lib": ["ES2022", "DOM"], "types": ["node"], "resolveJsonModule": true },
+  "include": ["packages/*/scripts/**/*.ts", "packages/*/test/**/*.ts"]
+}

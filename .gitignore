@@ -1,0 +1,31 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+# Secrets — never commit credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Customer data — assessment snapshots, exports and reports must never be committed.
+# Only synthetic fixtures under packages/*/test/fixtures are allowed.
+snapshots/
+data/
+out/
+reports/
+*.snapshot.json
+*.blueprint.json
+customer-*/
+**/fixtures/customer/
+
+# Local tooling
+.DS_Store
+*.log
+.forge/
+.rovo/sessions/
+AGENTS.local.md

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "entries": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "product",
+    "entries"
+  ],
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "elementType": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "read",
+            "delete",
+            "configure"
+          ]
+        },
+        "aspect": {
+          "description": "sub-capability, e.g. \"field layout\" for request types",
+          "$ref": "#/$defs/__schema1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "api",
+            "partial",
+            "ui-only",
+            "unknown"
+          ]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "api": {
+          "description": "method + path",
+          "$ref": "#/$defs/__schema2"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "fallback": {
+          "type": "string",
+          "enum": [
+            "guided-manual",
+            "solution-composer",
+            "import-json",
+            "none"
+          ]
+        },
+        "verification": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "deprecated"
+              ]
+            },
+            "verifiedOn": {
+              "type": "string"
+            },
+            "verifiedAgainst": {
+              "description": "site / template version the artifact was captured from",
+              "$ref": "#/$defs/__schema3"
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "elementType",
+        "operation",
+        "status",
+        "confidence",
+        "verification"
+      ]
+    },
+    "__schema1": {
+      "type": "string"
+    },
+    "__schema2": {
+      "type": "string"
+    },
+    "__schema3": {
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/vankolekar-dev/forge-sn-jsm-migration-assessment/schema/1.0.0/coverage-matrix.schema.json"
+}

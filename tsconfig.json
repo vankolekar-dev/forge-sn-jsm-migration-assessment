@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/model"
+    },
+    {
+      "path": "packages/reference"
+    },
+    {
+      "path": "packages/collector"
+    },
+    {
+      "path": "packages/atlassian"
+    },
+    {
+      "path": "packages/tools"
+    },
+    {
+      "path": "packages/analyser"
+    }
+  ]
+}

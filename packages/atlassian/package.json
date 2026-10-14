@@ -1,0 +1,12 @@
+{
+  "name": "@snjsm/atlassian",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Atlassian Cloud REST client (Jira, JSM, Assets) with retries, read-only mode and pluggable auth",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./node": "./dist/node.js"
+  }
+}

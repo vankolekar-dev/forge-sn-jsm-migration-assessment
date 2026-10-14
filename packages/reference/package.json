@@ -1,0 +1,12 @@
+{
+  "name": "@snjsm/reference",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned Atlassian reference library, capability catalogue and API coverage matrix",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@snjsm/model": "0.1.0",
+    "zod": "^4.1.0"
+  }
+}

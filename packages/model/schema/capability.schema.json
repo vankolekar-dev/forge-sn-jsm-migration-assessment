@@ -1,0 +1,2291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "ITSM",
+        "ITOM",
+        "ITAM",
+        "ITBM",
+        "HR",
+        "CSM",
+        "FACILITIES",
+        "SECOPS",
+        "GRC",
+        "CUSTOM"
+      ]
+    },
+    "practice": {
+      "type": "string",
+      "description": "ITSM practice, e.g. service-request, incident, change, problem, asset"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10
+    },
+    "dependsOn": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "outcomes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema1"
+      }
+    },
+    "design": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "description": {
+          "type": "string"
+        },
+        "basedOn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema6"
+          },
+          "description": "reference-library artifact ids this design reuses (templates, schemas)"
+        },
+        "elements": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema7"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "basedOn",
+        "elements"
+      ]
+    },
+    "signals": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema37"
+      }
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "unverified",
+            "deprecated"
+          ]
+        },
+        "verifiedOn": {
+          "type": "string"
+        },
+        "verifiedAgainst": {
+          "description": "site / template version the artifact was captured from",
+          "$ref": "#/$defs/__schema39"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  "required": [
+    "id",
+    "domain",
+    "practice",
+    "name",
+    "description",
+    "outcomes",
+    "design",
+    "signals",
+    "verification",
+    "version"
+  ],
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+    },
+    "__schema1": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "intake",
+            "self-service",
+            "routing",
+            "approval",
+            "fulfilment",
+            "service-level",
+            "communication",
+            "visibility",
+            "compliance",
+            "data",
+            "integration",
+            "security"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 10
+        },
+        "parameters": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "string-list",
+                  "duration",
+                  "choice"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "default": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "$ref": "#/$defs/__schema2"
+                  }
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "required": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "description"
+            ]
+          }
+        },
+        "acceptance": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          }
+        },
+        "deliveredBy": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "description": "design element ids in the reference design that deliver this outcome"
+        },
+        "evidenceHints": {
+          "default": [],
+          "description": "what ServiceNow evidence sets or overrides the parameters",
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "statement",
+        "acceptance",
+        "deliveredBy"
+      ]
+    },
+    "__schema2": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "minutes",
+            "hours",
+            "business-hours",
+            "days",
+            "business-days"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ]
+    },
+    "__schema3": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "given": {
+          "type": "string",
+          "minLength": 1
+        },
+        "when": {
+          "type": "string",
+          "minLength": 1
+        },
+        "then": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema4"
+          }
+        },
+        "verification": {
+          "default": "manual",
+          "type": "string",
+          "enum": [
+            "automated",
+            "manual"
+          ]
+        },
+        "check": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create-request",
+                  "transition",
+                  "approve",
+                  "decline",
+                  "wait",
+                  "assert-field",
+                  "assert-status",
+                  "assert-sla",
+                  "assert-notification",
+                  "assert-assignee"
+                ]
+              },
+              "spec": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        }
+      },
+      "required": [
+        "id",
+        "given",
+        "when",
+        "then"
+      ]
+    },
+    "__schema4": {
+      "type": "string",
+      "minLength": 1
+    },
+    "__schema5": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "__schema6": {
+      "type": "string"
+    },
+    "__schema7": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "space"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9]{1,9}$"
+                },
+                "productType": {
+                  "default": "service_desk",
+                  "type": "string",
+                  "enum": [
+                    "service_desk",
+                    "software",
+                    "business"
+                  ]
+                },
+                "templateKey": {
+                  "type": "string",
+                  "description": "Atlassian project template key, e.g. the JSM IT service management template"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "templateKey"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "work-type"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                },
+                "hierarchyLevel": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "workflowId": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "field"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fieldType": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "paragraph",
+                    "number",
+                    "date",
+                    "datetime",
+                    "select",
+                    "multiselect",
+                    "radio",
+                    "checkbox",
+                    "cascading-select",
+                    "user",
+                    "multiuser",
+                    "group",
+                    "url",
+                    "labels",
+                    "assets-object",
+                    "team"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "systemFieldId": {
+                  "description": "set when the reference uses a built-in field (summary, description, priority, components…)",
+                  "$ref": "#/$defs/__schema16"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "assets": {
+                  "description": "for assets-object fields: the design id of the Assets object type plus an optional AQL scope",
+                  "$ref": "#/$defs/__schema17"
+                }
+              },
+              "required": [
+                "name",
+                "fieldType"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "portal-group"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "order": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "request-type"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                },
+                "helpText": {
+                  "type": "string"
+                },
+                "spaceId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "workTypeId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "portalGroupIds": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "fields": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "fieldId": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "required": {
+                        "$ref": "#/$defs/__schema18"
+                      },
+                      "label": {
+                        "$ref": "#/$defs/__schema19"
+                      },
+                      "helpText": {
+                        "$ref": "#/$defs/__schema21"
+                      },
+                      "defaultValue": {
+                        "$ref": "#/$defs/__schema22"
+                      },
+                      "hidden": {
+                        "$ref": "#/$defs/__schema23"
+                      }
+                    },
+                    "required": [
+                      "fieldId"
+                    ]
+                  }
+                },
+                "formId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "icon": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "spaceId",
+                "workTypeId"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "form"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sections": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema24"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "sections"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "workflow"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "statuses": {
+                  "minItems": 2,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema26"
+                  }
+                },
+                "initialStatusId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "transitions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "from": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/__schema0"
+                        },
+                        "description": "empty = from any status"
+                      },
+                      "to": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "conditions": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "validators": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "postFunctions": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "from",
+                      "to"
+                    ]
+                  }
+                },
+                "approvals": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "atStatusId": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "approvers": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "requester-manager"
+                              },
+                              "managerSource": {
+                                "default": "assets-person",
+                                "type": "string",
+                                "enum": [
+                                  "assets-person",
+                                  "user-profile",
+                                  "field"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "group"
+                              },
+                              "groupId": {
+                                "$ref": "#/$defs/__schema0"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "groupId"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "field"
+                              },
+                              "fieldId": {
+                                "$ref": "#/$defs/__schema0"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "fieldId"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "assets-attribute"
+                              },
+                              "objectFieldId": {
+                                "$ref": "#/$defs/__schema0"
+                              },
+                              "attribute": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "objectFieldId",
+                              "attribute"
+                            ]
+                          }
+                        ]
+                      },
+                      "decision": {
+                        "default": "one",
+                        "type": "string",
+                        "enum": [
+                          "one",
+                          "all"
+                        ]
+                      },
+                      "approveTransitionId": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "declineTransitionId": {
+                        "$ref": "#/$defs/__schema0"
+                      }
+                    },
+                    "required": [
+                      "atStatusId",
+                      "approvers",
+                      "approveTransitionId",
+                      "declineTransitionId"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "statuses",
+                "initialStatusId",
+                "transitions"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "calendar"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "timeZone": {
+                  "default": "UTC",
+                  "type": "string"
+                },
+                "workingHours": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema27"
+                  }
+                },
+                "holidays": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "recurring": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "date"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "workingHours"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "sla"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "spaceId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "start": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema28"
+                  },
+                  "description": "conditions, e.g. \"Issue created\", \"Entered status: Waiting for support\""
+                },
+                "pause": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "stop": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema29"
+                  }
+                },
+                "goals": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema30"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "spaceId",
+                "start",
+                "stop",
+                "goals"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "queue"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "spaceId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "jql": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "columns": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "spaceId",
+                "jql"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "automation"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "scope": {
+                  "type": "object",
+                  "properties": {
+                    "spaceIds": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/__schema0"
+                      }
+                    },
+                    "global": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "templateId": {
+                  "description": "Atlassian automation template this rule is based on",
+                  "$ref": "#/$defs/__schema31"
+                },
+                "trigger": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "config": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                "conditions": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      },
+                      "config": {
+                        "default": {},
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                },
+                "actions": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema32"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "scope",
+                "trigger",
+                "actions"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "notification"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "spaceId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "audience": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "agents",
+                    "approvers",
+                    "watchers",
+                    "group"
+                  ]
+                },
+                "event": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "channel": {
+                  "default": "email",
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "portal",
+                    "slack",
+                    "teams"
+                  ]
+                },
+                "template": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "spaceId",
+                "audience",
+                "event"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "team"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "kind": {
+                  "default": "atlassian-team",
+                  "type": "string",
+                  "enum": [
+                    "atlassian-team",
+                    "group"
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "assets-schema"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9]{1,9}$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "templateKey": {
+                  "description": "Atlassian Assets schema template this schema starts from",
+                  "$ref": "#/$defs/__schema33"
+                },
+                "purpose": {
+                  "description": "ownership / permission boundary this schema represents",
+                  "$ref": "#/$defs/__schema34"
+                }
+              },
+              "required": [
+                "name",
+                "key"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "assets-status-type"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "inactive",
+                    "pending"
+                  ]
+                },
+                "schemaId": {
+                  "description": "omit for a global status type",
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              "required": [
+                "name",
+                "category"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "assets-reference-type"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "e.g. \"Depends on\", \"Installed on\", \"Owned by\""
+                },
+                "description": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "schemaId": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "assets-object-type"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schemaId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "parentId": {
+                  "description": "design id of the parent object type (inheritance)",
+                  "$ref": "#/$defs/__schema0"
+                },
+                "abstract": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "inheritAttributes": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "icon": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "schemaId"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "name": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "origin": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "referenceId": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "justification": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "deliversOutcomeIds": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "dependsOn": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "notes": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "type": {
+              "type": "string",
+              "const": "assets-attribute"
+            },
+            "spec": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectTypeId": {
+                  "$ref": "#/$defs/__schema0"
+                },
+                "attributeType": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "textarea",
+                    "integer",
+                    "float",
+                    "boolean",
+                    "date",
+                    "datetime",
+                    "url",
+                    "email",
+                    "ipaddress",
+                    "select",
+                    "reference",
+                    "user",
+                    "group",
+                    "status"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "default": false,
+                  "description": "use as the object label",
+                  "$ref": "#/$defs/__schema35"
+                },
+                "unique": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "minCardinality": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "maxCardinality": {
+                  "default": 1,
+                  "description": "-1 = unlimited",
+                  "$ref": "#/$defs/__schema36"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "regex": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "object",
+                  "properties": {
+                    "targetObjectTypeId": {
+                      "$ref": "#/$defs/__schema0"
+                    },
+                    "referenceTypeId": {
+                      "$ref": "#/$defs/__schema0"
+                    },
+                    "aqlFilter": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "targetObjectTypeId",
+                    "referenceTypeId"
+                  ]
+                },
+                "statusTypeIds": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "hidden": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "objectTypeId",
+                "attributeType"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "origin",
+            "type",
+            "spec"
+          ]
+        }
+      ]
+    },
+    "__schema8": {
+      "type": "string",
+      "minLength": 1
+    },
+    "__schema9": {
+      "type": "string",
+      "enum": [
+        "reference",
+        "reference-configured",
+        "extension"
+      ]
+    },
+    "__schema10": {
+      "description": "id of the reference-library artifact this element is based on",
+      "$ref": "#/$defs/__schema11"
+    },
+    "__schema11": {
+      "type": "string"
+    },
+    "__schema12": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 10
+        },
+        "outcomeIds": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "evidenceIds": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "alternativesConsidered": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "__schema13": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "__schema14": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "__schema15": {
+      "type": "string"
+    },
+    "__schema16": {
+      "type": "string"
+    },
+    "__schema17": {
+      "type": "object",
+      "properties": {
+        "objectTypeId": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "aqlFilter": {
+          "type": "string"
+        },
+        "multiple": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "objectTypeId"
+      ]
+    },
+    "__schema18": {
+      "default": false,
+      "type": "boolean"
+    },
+    "__schema19": {
+      "description": "portal label, if it differs from the field name",
+      "$ref": "#/$defs/__schema20"
+    },
+    "__schema20": {
+      "type": "string"
+    },
+    "__schema21": {
+      "type": "string"
+    },
+    "__schema22": {},
+    "__schema23": {
+      "default": false,
+      "type": "boolean"
+    },
+    "__schema24": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fieldId": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "required": {
+                "$ref": "#/$defs/__schema18"
+              },
+              "label": {
+                "$ref": "#/$defs/__schema19"
+              },
+              "helpText": {
+                "$ref": "#/$defs/__schema21"
+              },
+              "defaultValue": {
+                "$ref": "#/$defs/__schema22"
+              },
+              "hidden": {
+                "$ref": "#/$defs/__schema23"
+              },
+              "condition": {
+                "description": "show when, e.g. \"Hardware type = Laptop\"",
+                "$ref": "#/$defs/__schema25"
+              }
+            },
+            "required": [
+              "fieldId"
+            ]
+          }
+        }
+      },
+      "required": [
+        "title",
+        "fields"
+      ]
+    },
+    "__schema25": {
+      "type": "string"
+    },
+    "__schema26": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "TODO",
+            "IN_PROGRESS",
+            "DONE"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category"
+      ]
+    },
+    "__schema27": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "MON",
+              "TUE",
+              "WED",
+              "THU",
+              "FRI",
+              "SAT",
+              "SUN"
+            ]
+          }
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "days",
+        "start",
+        "end"
+      ]
+    },
+    "__schema28": {
+      "type": "string"
+    },
+    "__schema29": {
+      "type": "string"
+    },
+    "__schema30": {
+      "type": "object",
+      "properties": {
+        "jql": {
+          "default": "",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "calendarId": {
+          "$ref": "#/$defs/__schema0"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+    "__schema31": {
+      "type": "string"
+    },
+    "__schema32": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "config": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "__schema33": {
+      "type": "string"
+    },
+    "__schema34": {
+      "type": "string"
+    },
+    "__schema35": {
+      "type": "boolean"
+    },
+    "__schema36": {
+      "type": "integer",
+      "minimum": -1,
+      "maximum": 9007199254740991
+    },
+    "__schema37": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "tables": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "keywords": {
+          "default": [],
+          "description": "matched case-insensitively against names, categories and descriptions",
+          "$ref": "#/$defs/__schema38"
+        },
+        "evidenceKinds": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "weight": {
+          "default": 0.5,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "description"
+      ]
+    },
+    "__schema38": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "__schema39": {
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/vankolekar-dev/forge-sn-jsm-migration-assessment/schema/1.0.0/capability.schema.json"
+}

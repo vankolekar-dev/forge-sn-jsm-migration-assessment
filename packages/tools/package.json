@@ -1,0 +1,13 @@
+{
+  "name": "@snjsm/tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference capture and API coverage spike tooling (run against a real Atlassian site)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@snjsm/atlassian": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "@snjsm/reference": "0.1.0"
+  }
+}
