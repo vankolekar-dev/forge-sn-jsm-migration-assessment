@@ -1,0 +1,27 @@
+{
+    "version": "0.1.0",
+    "description": "Automation patterns aligned with Atlassian's automation template library. Each pattern names the trigger, conditions and actions the build engine turns into a rule.",
+    "artifacts": [
+        {
+            "id": "atl.automation.pattern.set-approvers-from-assets",
+            "kind": "automation-pattern", "product": "automation",
+            "name": "Set approvers from the requester's manager (Assets)",
+            "attributes": { "trigger": "work-item-created", "actions": ["lookup-assets-objects", "edit-field:Approvers"] },
+            "verification": { "status": "unverified" }
+        },
+        {
+            "id": "atl.automation.pattern.auto-approve",
+            "kind": "automation-pattern", "product": "automation",
+            "name": "Auto-approve requests that meet a policy",
+            "attributes": { "trigger": "work-item-created", "conditions": ["assets-attribute-compare"], "actions": ["transition:approve", "comment:internal"] },
+            "verification": { "status": "unverified" }
+        },
+        {
+            "id": "atl.automation.pattern.route-to-team",
+            "kind": "automation-pattern", "product": "automation",
+            "name": "Route work to the owning team",
+            "attributes": { "trigger": "work-item-transitioned", "actions": ["edit-field:Team"] },
+            "verification": { "status": "unverified" }
+        }
+    ]
+}

@@ -1,0 +1,73 @@
+[
+  {
+    "id": "sp.it-service-desk", "type": "space", "name": "IT service desk", "origin": "reference-configured",
+    "referenceId": "atl.jsm.template.itsm",
+    "spec": { "name": "IT service desk", "productType": "service_desk", "templateKey": "com.atlassian.servicedesk:itil-v2-service-desk-project", "description": "IT service management space created from the Atlassian ITSM template." }
+  },
+  {
+    "id": "wf.service-request-approvals", "type": "workflow", "name": "Service request fulfilment with approvals", "origin": "reference",
+    "referenceId": "atl.jsm.itsm.workflow.service-request-fulfilment-with-approvals",
+    "spec": {
+      "name": "Service request fulfilment with approvals workflow",
+      "initialStatusId": "s.waiting-for-approval",
+      "statuses": [
+        { "id": "s.waiting-for-approval", "name": "Waiting for approval", "category": "TODO" },
+        { "id": "s.waiting-for-support", "name": "Waiting for support", "category": "TODO" },
+        { "id": "s.in-progress", "name": "In progress", "category": "IN_PROGRESS" },
+        { "id": "s.waiting-for-customer", "name": "Waiting for customer", "category": "IN_PROGRESS" },
+        { "id": "s.resolved", "name": "Resolved", "category": "DONE" },
+        { "id": "s.declined", "name": "Declined", "category": "DONE" },
+        { "id": "s.canceled", "name": "Canceled", "category": "DONE" }
+      ],
+      "transitions": [
+        { "id": "t.approve", "name": "Approve", "from": ["s.waiting-for-approval"], "to": "s.waiting-for-support" },
+        { "id": "t.decline", "name": "Decline", "from": ["s.waiting-for-approval"], "to": "s.declined" },
+        { "id": "t.start", "name": "Start work", "from": ["s.waiting-for-support"], "to": "s.in-progress" },
+        { "id": "t.ask-customer", "name": "Ask customer", "from": ["s.in-progress"], "to": "s.waiting-for-customer" },
+        { "id": "t.customer-responded", "name": "Respond", "from": ["s.waiting-for-customer"], "to": "s.in-progress" },
+        { "id": "t.resolve", "name": "Resolve", "from": ["s.in-progress"], "to": "s.resolved" },
+        { "id": "t.cancel", "name": "Cancel request", "from": [], "to": "s.canceled" }
+      ],
+      "approvals": [
+        { "atStatusId": "s.waiting-for-approval", "approvers": { "kind": "field", "fieldId": "fld.approvers" }, "decision": "one", "approveTransitionId": "t.approve", "declineTransitionId": "t.decline" }
+      ]
+    }
+  },
+  {
+    "id": "wt.service-request-approvals", "type": "work-type", "name": "Service request with approvals", "origin": "reference",
+    "referenceId": "atl.jsm.itsm.work-type.service-request-with-approvals",
+    "spec": { "name": "Service request with approvals", "workflowId": "wf.service-request-approvals" }
+  },
+  { "id": "fld.summary", "type": "field", "name": "Summary", "origin": "reference", "referenceId": "atl.jsm.template.itsm", "spec": { "name": "Summary", "fieldType": "text", "systemFieldId": "summary" } },
+  { "id": "fld.approvers", "type": "field", "name": "Approvers", "origin": "reference", "referenceId": "atl.jsm.field.approvers", "spec": { "name": "Approvers", "fieldType": "multiuser", "systemFieldId": "approvers" } },
+  {
+    "id": "fld.hardware-model", "type": "field", "name": "Hardware model", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model",
+    "spec": { "name": "Hardware model", "fieldType": "assets-object", "description": "Approved hardware model from the Assets catalogue.", "assets": { "objectTypeId": "as.ot.hardware-model", "aqlFilter": "\"Approved\" = true", "multiple": false } }
+  },
+  {
+    "id": "fld.delivery-location", "type": "field", "name": "Delivery location", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.location",
+    "spec": { "name": "Delivery location", "fieldType": "assets-object", "assets": { "objectTypeId": "as.ot.location", "multiple": false } }
+  },
+  { "id": "fld.business-justification", "type": "field", "name": "Business justification", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.request-type.request-new-hardware", "spec": { "name": "Business justification", "fieldType": "paragraph" } },
+  { "id": "fld.needed-by", "type": "field", "name": "Needed by", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.request-type.request-new-hardware", "spec": { "name": "Needed by", "fieldType": "date" } },
+  { "id": "pg.computers", "type": "portal-group", "name": "Computers", "origin": "reference", "referenceId": "atl.jsm.itsm.portal-group.computers", "spec": { "name": "Computers" } },
+  {
+    "id": "form.request-hardware", "type": "form", "name": "Request new hardware", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.request-type.request-new-hardware",
+    "spec": {
+      "name": "Request new hardware",
+      "sections": [
+        { "title": "What do you need?", "fields": [ { "fieldId": "fld.hardware-model", "required": true }, { "fieldId": "fld.needed-by", "required": false } ] },
+        { "title": "Delivery", "fields": [ { "fieldId": "fld.delivery-location", "required": true } ] },
+        { "title": "Justification", "fields": [ { "fieldId": "fld.business-justification", "required": true, "condition": "Hardware model is not standard" } ] }
+      ]
+    }
+  },
+  {
+    "id": "rt.request-new-hardware", "type": "request-type", "name": "Request new hardware", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.request-type.request-new-hardware",
+    "spec": {
+      "name": "Request new hardware", "description": "Order a laptop, monitor, phone or accessory from the approved catalogue.",
+      "spaceId": "sp.it-service-desk", "workTypeId": "wt.service-request-approvals", "portalGroupIds": ["pg.computers"], "formId": "form.request-hardware",
+      "fields": [ { "fieldId": "fld.summary", "required": true, "label": "What do you need?" } ]
+    }
+  }
+]

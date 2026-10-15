@@ -1,0 +1,490 @@
+{
+  "version": "0.1.0",
+  "description": "Jira Service Management IT service management (ITSM) template: the reference model for ITSM capabilities. Seeded from product knowledge. Every entry stays 'unverified' until it is captured from a real site (vish-se-demo) by the reference capture tool.",
+  "artifacts": [
+    {
+      "id": "atl.jsm.template.itsm",
+      "kind": "project-template",
+      "product": "jsm",
+      "name": "IT service management",
+      "description": "JSM ITSM project template with request, incident, problem, change and post-incident review practices.",
+      "attributes": {
+        "projectTypeKey": "service_desk",
+        "templateKey": "com.atlassian.servicedesk:itil-v2-service-desk-project",
+        "captured": {
+          "projectKey": "ZZREF",
+          "projectTypeKey": "service_desk",
+          "style": "classic",
+          "workTypes": [
+            "Task",
+            "Service Request",
+            "Sub-task",
+            "Incident",
+            "Problem",
+            "Change",
+            "Service Request with Approvals"
+          ],
+          "workflowScheme": {
+            "id": 10365,
+            "name": "Jira Service Management IT Support Workflow Scheme generated for Space ZZREF",
+            "defaultWorkflow": "jira",
+            "mappings": {
+              "Task": "ZZREF: Jira Service Management default workflow",
+              "Sub-task": "ZZREF: Jira Service Management default workflow",
+              "Problem": "ZZREF: Problem Management workflow for Jira Service Management",
+              "Incident": "ZZREF: Incident Management workflow for Jira Service Management",
+              "Service Request": "ZZREF: Service Request Fulfilment workflow for Jira Service Management",
+              "Service Request with Approvals": "ZZREF: Service Request Fulfilment with Approvals workflow for Jira Service Management",
+              "Change": "ZZREF: Change Management workflow for Jira Service Management"
+            }
+          }
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)",
+        "notes": "templateKey cannot be read back via REST; confirm the template used when the project was created"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.service-request",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Service request",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "workflow": "atl.jsm.itsm.workflow.service-request-fulfilment",
+        "captured": {
+          "id": "10306",
+          "subtask": false,
+          "workflow": "ZZREF: Service Request Fulfilment workflow for Jira Service Management"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.service-request-with-approvals",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Service request with approvals",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "workflow": "atl.jsm.itsm.workflow.service-request-fulfilment-with-approvals",
+        "captured": {
+          "id": "10307",
+          "subtask": false,
+          "workflow": "ZZREF: Service Request Fulfilment with Approvals workflow for Jira Service Management"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.incident",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Incident",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "captured": {
+          "id": "10305",
+          "subtask": false,
+          "workflow": "ZZREF: Incident Management workflow for Jira Service Management"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.problem",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Problem",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "captured": {
+          "id": "10200",
+          "subtask": false,
+          "workflow": "ZZREF: Problem Management workflow for Jira Service Management"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.change",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Change",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "captured": {
+          "id": "10308",
+          "subtask": false,
+          "workflow": "ZZREF: Change Management workflow for Jira Service Management"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.work-type.post-incident-review",
+      "kind": "work-type",
+      "product": "jsm",
+      "name": "Post-incident review",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {},
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): work type not in project ZZREF"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.workflow.service-request-fulfilment-with-approvals",
+      "kind": "workflow",
+      "product": "jsm",
+      "name": "Service request fulfilment with approvals workflow",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "statuses": [
+          {
+            "name": "Waiting for support",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Pending",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Canceled",
+            "category": "DONE"
+          },
+          {
+            "name": "Escalated",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "In Progress",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Closed",
+            "category": "DONE"
+          },
+          {
+            "name": "Waiting for customer",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Resolved",
+            "category": "DONE"
+          },
+          {
+            "name": "Waiting for approval",
+            "category": "TODO"
+          }
+        ],
+        "approvalStatus": "Waiting for approval",
+        "approverSource": "Approvers field",
+        "captured": {
+          "siteWorkflowName": "ZZREF: Service Request Fulfilment with Approvals workflow for Jira Service Management",
+          "usedBy": [
+            "Service Request with Approvals"
+          ]
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)",
+        "notes": "statuses replaced from site: status \"Waiting for support\" category IN_PROGRESS, expected TODO; status \"Declined\" missing; extra status \"Escalated\" (IN_PROGRESS)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.workflow.service-request-fulfilment",
+      "kind": "workflow",
+      "product": "jsm",
+      "name": "Service request fulfilment workflow",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "statuses": [
+          {
+            "name": "Waiting for support",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Pending",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Canceled",
+            "category": "DONE"
+          },
+          {
+            "name": "Escalated",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "In Progress",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Closed",
+            "category": "DONE"
+          },
+          {
+            "name": "Waiting for customer",
+            "category": "IN_PROGRESS"
+          },
+          {
+            "name": "Resolved",
+            "category": "DONE"
+          }
+        ],
+        "captured": {
+          "siteWorkflowName": "ZZREF: Service Request Fulfilment workflow for Jira Service Management",
+          "usedBy": [
+            "Service Request"
+          ]
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)",
+        "notes": "statuses replaced from site: status \"Waiting for support\" category IN_PROGRESS, expected TODO; extra status \"Escalated\" (IN_PROGRESS)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.request-type.request-new-hardware",
+      "kind": "request-type",
+      "product": "jsm",
+      "name": "Request new hardware",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "workType": "atl.jsm.itsm.work-type.service-request-with-approvals",
+        "portalGroup": "atl.jsm.itsm.portal-group.computers",
+        "captured": {
+          "workType": "Service Request",
+          "groups": [
+            "Computers"
+          ],
+          "fields": [
+            {
+              "fieldId": "summary",
+              "name": "Summary",
+              "required": true
+            },
+            {
+              "fieldId": "description",
+              "name": "Why do you need this?",
+              "required": true
+            },
+            {
+              "fieldId": "attachment",
+              "name": "Attachment",
+              "required": false
+            }
+          ]
+        }
+      },
+      "verification": {
+        "status": "unverified",
+        "notes": "mismatched on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): work type \"Service Request\", expected \"Service request with approvals\""
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.request-type.report-broken-hardware",
+      "kind": "request-type",
+      "product": "jsm",
+      "name": "Report broken hardware",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "workType": "atl.jsm.itsm.work-type.incident"
+      },
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): request type not on the service desk"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.portal-group.computers",
+      "kind": "portal-group",
+      "product": "jsm",
+      "name": "Computers",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {},
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.portal-group.common-requests",
+      "kind": "portal-group",
+      "product": "jsm",
+      "name": "Common requests",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {},
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.sla.time-to-first-response",
+      "kind": "sla",
+      "product": "jsm",
+      "name": "Time to first response",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "start": [
+          "Issue created"
+        ],
+        "stop": [
+          "Comment: For customers",
+          "Entered status: Resolved",
+          "Entered status: Canceled",
+          "Entered status: Declined"
+        ]
+      },
+      "verification": {
+        "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.sla.time-to-resolution",
+      "kind": "sla",
+      "product": "jsm",
+      "name": "Time to resolution",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "start": [
+          "Issue created"
+        ],
+        "pause": [
+          "Status: Waiting for customer",
+          "Status: Pending"
+        ],
+        "stop": [
+          "Resolution: Set"
+        ]
+      },
+      "verification": {
+        "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.sla.time-to-close-after-resolution",
+      "kind": "sla",
+      "product": "jsm",
+      "name": "Time to close after resolution",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {},
+      "verification": {
+        "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.jsm.calendar.sample-9-5",
+      "kind": "calendar",
+      "product": "jsm",
+      "name": "Sample 9-5 Calendar",
+      "attributes": {
+        "days": [
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "verification": {
+        "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.jsm.itsm.queue.service-requests",
+      "kind": "queue",
+      "product": "jsm",
+      "name": "Service requests",
+      "partOf": "atl.jsm.template.itsm",
+      "attributes": {
+        "captured": {
+          "jql": "project = ZZREF AND resolution = Unresolved AND issuetype = \"Service Request\" ORDER BY \"Time to resolution\" ASC"
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.field.approvers",
+      "kind": "field",
+      "product": "jsm",
+      "name": "Approvers",
+      "description": "Multi-user field that JSM approval steps read approvers from.",
+      "attributes": {
+        "captured": {
+          "fields": [
+            {
+              "id": "customfield_10003",
+              "schemaType": "array",
+              "customType": "com.atlassian.jira.plugin.system.customfieldtypes:multiuserpicker"
+            }
+          ]
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.jsm.notification.customer-defaults",
+      "kind": "notification",
+      "product": "jsm",
+      "name": "Default customer notifications",
+      "description": "Request created, public comment added, request resolved, approval required.",
+      "attributes": {},
+      "verification": {
+        "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.platform.team.atlassian-teams",
+      "kind": "team-pattern",
+      "product": "platform",
+      "name": "Atlassian Teams",
+      "description": "Use Atlassian Teams with the Team field for routing and ownership instead of creating per-queue groups.",
+      "attributes": {},
+      "verification": {
+        "status": "unverified"
+      }
+    }
+  ]
+}

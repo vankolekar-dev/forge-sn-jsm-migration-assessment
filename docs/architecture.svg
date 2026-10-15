@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#42526E"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#97A0AF"/></marker>
+    <style>
+      .t{font-size:17px;font-weight:700;fill:#172B4D}
+      .s{font-size:13px;fill:#42526E}
+      .h{font-size:14px;font-weight:700;fill:#FFFFFF}
+      .lbl{font-size:12px;fill:#42526E;font-style:italic}
+      .built{fill:#E3FCEF;stroke:#00875A;stroke-width:2}
+      .next{fill:#F4F5F7;stroke:#97A0AF;stroke-width:2;stroke-dasharray:7 5}
+      .ref{fill:#DEEBFF;stroke:#0052CC;stroke-width:2}
+      .src{fill:#FFFAE6;stroke:#FF991F;stroke-width:2}
+      .tgt{fill:#EAE6FF;stroke:#5243AA;stroke-width:2}
+      .ln{stroke:#42526E;stroke-width:2;fill:none}
+      .lg{stroke:#97A0AF;stroke-width:2;fill:none;stroke-dasharray:6 5}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#FFFFFF"/>
+  <text x="40" y="44" font-size="26" font-weight="700" fill="#172B4D">ServiceNow → Atlassian: outcome-driven assessment &amp; build toolkit</text>
+  <text x="40" y="70" class="s">ServiceNow is evidence only · Atlassian reference models are the design anchor · extensions must be justified · success = outcome parity proven by acceptance tests</text>
+
+  <!-- Layer band -->
+  <g>
+    <rect x="40" y="92" width="290" height="40" rx="6" fill="#FF991F"/><text x="185" y="118" text-anchor="middle" class="h">1 · EVIDENCE (ServiceNow)</text>
+    <rect x="345" y="92" width="290" height="40" rx="6" fill="#00875A"/><text x="490" y="118" text-anchor="middle" class="h">2 · OUTCOME (signed off)</text>
+    <rect x="650" y="92" width="290" height="40" rx="6" fill="#0052CC"/><text x="795" y="118" text-anchor="middle" class="h">3 · DESIGN (Atlassian reference)</text>
+    <rect x="955" y="92" width="290" height="40" rx="6" fill="#5243AA"/><text x="1100" y="118" text-anchor="middle" class="h">4 · BUILD (declarative engine)</text>
+    <rect x="1260" y="92" width="300" height="40" rx="6" fill="#403294"/><text x="1410" y="118" text-anchor="middle" class="h">5 · VERIFY (acceptance tests)</text>
+  </g>
+
+  <!-- Sources -->
+  <rect x="40" y="165" width="250" height="215" rx="10" class="src"/>
+  <text x="58" y="193" class="t">ServiceNow sources</text>
+  <text x="58" y="220" class="s">• Live instance: OAuth client</text>
+  <text x="70" y="238" class="s">credentials, read-only GETs</text>
+  <text x="58" y="262" class="s">• XML exports / update sets</text>
+  <text x="58" y="286" class="s">• Usage + CMDB as server-side</text>
+  <text x="70" y="304" class="s">aggregate counts only</text>
+  <text x="58" y="328" class="s">• Later: screenshots,</text>
+  <text x="70" y="346" class="s">process documents</text>
+  <text x="58" y="368" class="lbl">no record data leaves SN</text>
+
+  <!-- Collector -->
+  <rect x="330" y="165" width="230" height="215" rx="10" class="built"/>
+  <text x="348" y="193" class="t">collector</text>
+  <text x="348" y="220" class="s">XML parser · OAuth client</text>
+  <text x="348" y="240" class="s">Table API keyset paging</text>
+  <text x="348" y="260" class="s">Aggregate API</text>
+  <text x="348" y="280" class="s">collectLive · mergeSnapshots</text>
+  <rect x="348" y="300" width="194" height="60" rx="6" fill="#FFFFFF" stroke="#00875A"/>
+  <text x="445" y="325" text-anchor="middle" font-size="14" font-weight="700" fill="#172B4D">Snapshot</text>
+  <text x="445" y="345" text-anchor="middle" class="s">records + aggregates</text>
+
+  <!-- Analyser -->
+  <rect x="600" y="165" width="560" height="300" rx="10" class="built"/>
+  <text x="618" y="193" class="t">analyser</text>
+  <g font-size="13" fill="#172B4D">
+    <rect x="618" y="208" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="702" y="232" text-anchor="middle" font-weight="700">Evidence</text><text x="702" y="252" text-anchor="middle" class="s">extractors · scripts</text>
+    <rect x="796" y="208" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="880" y="232" text-anchor="middle" font-weight="700">Assess</text><text x="880" y="252" text-anchor="middle" class="s">15 areas · CMDB→Assets</text>
+    <rect x="974" y="208" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="1058" y="232" text-anchor="middle" font-weight="700">Detect</text><text x="1058" y="252" text-anchor="middle" class="s">practices · capabilities</text>
+    <rect x="618" y="284" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="702" y="308" text-anchor="middle" font-weight="700">Parameters</text><text x="702" y="328" text-anchor="middle" class="s">resolved from evidence</text>
+    <rect x="796" y="284" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="880" y="308" text-anchor="middle" font-weight="700">Outcomes</text><text x="880" y="328" text-anchor="middle" class="s">+ given/when/then</text>
+    <rect x="974" y="284" width="168" height="58" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="1058" y="308" text-anchor="middle" font-weight="700">Design</text><text x="1058" y="328" text-anchor="middle" class="s">configured reference</text>
+    <rect x="618" y="360" width="524" height="40" rx="6" fill="#FFFFFF" stroke="#00875A"/><text x="880" y="385" text-anchor="middle" class="s">Fit/gap · buildability (API vs guided manual) · complexity score 0–100</text>
+  </g>
+  <path d="M786,237 h8" class="ln" marker-end="url(#a)"/><path d="M964,237 h8" class="ln" marker-end="url(#a)"/>
+  <path d="M1058,266 v8 H702 v8" class="ln" marker-end="url(#a)"/>
+  <path d="M786,313 h8" class="ln" marker-end="url(#a)"/><path d="M964,313 h8" class="ln" marker-end="url(#a)"/>
+  <text x="618" y="445" class="lbl">npm run analyse -- --xml … | --instance … --customer "…"</text>
+
+  <!-- Reference library -->
+  <rect x="600" y="490" width="560" height="120" rx="10" class="ref"/>
+  <text x="618" y="518" class="t">reference + model</text>
+  <text x="618" y="543" class="s">Atlassian reference models (JSM ITSM template, Assets ITAM schemas)</text>
+  <text x="618" y="563" class="s">Capability catalogue + outcome templates · API coverage matrix · zod contracts &amp; Blueprint</text>
+  <text x="618" y="588" class="lbl">tools: ref:capture / compare against a real site · api:spike (coverage probes)</text>
+  <path d="M880,490 V475" class="ln" marker-end="url(#a)"/>
+
+  <!-- Blueprint -->
+  <rect x="1200" y="165" width="360" height="160" rx="10" class="built"/>
+  <text x="1218" y="193" class="t">Migration Blueprint</text>
+  <text x="1218" y="218" class="s">evidence · capabilities · outcomes</text>
+  <text x="1218" y="238" class="s">design · fit/gap · decisions</text>
+  <text x="1218" y="262" class="s">+ assessment.json / assessment.md</text>
+  <text x="1218" y="282" class="s">(exec summary, risks, CMDB plan,</text>
+  <text x="1218" y="300" class="s">unknowns, next steps)</text>
+
+  <!-- Workbench -->
+  <rect x="1200" y="350" width="360" height="115" rx="10" class="next"/>
+  <text x="1218" y="378" class="t">Workbench (Forge, Jira global page)</text>
+  <text x="1218" y="403" class="s">Outcome workshop: confirm / change /</text>
+  <text x="1218" y="423" class="s">reject outcomes &amp; parameters → sign-off</text>
+  <text x="1218" y="447" class="lbl">later</text>
+
+  <path d="M290,272 h38" class="ln" marker-end="url(#a)"/>
+  <path d="M560,330 h38" class="ln" marker-end="url(#a)"/>
+  <path d="M1160,245 h38" class="ln" marker-end="url(#a)"/>
+  <path d="M1380,325 v23" class="lg" marker-end="url(#g)"/>
+
+  <!-- Build row -->
+  <rect x="40" y="660" width="330" height="190" rx="10" class="next"/>
+  <text x="58" y="688" class="t">Rovo CLI orchestration</text>
+  <text x="58" y="713" class="s">New Rovo skills (repo .rovo/skills)</text>
+  <text x="58" y="733" class="s">One Jira epic per capability</text>
+  <text x="58" y="753" class="s">Plans, explains, asks approval</text>
+  <text x="58" y="773" class="s">LLM never calls APIs directly</text>
+  <text x="58" y="835" class="lbl">next</text>
+
+  <rect x="420" y="660" width="380" height="190" rx="10" class="next"/>
+  <text x="438" y="688" class="t">builder engine + MCP server</text>
+  <text x="438" y="713" class="s">Deterministic, declarative, idempotent</text>
+  <text x="438" y="733" class="s">plan → dry-run → apply → verify</text>
+  <text x="438" y="753" class="s">State file (what exists, drift)</text>
+  <text x="438" y="773" class="s">Dependency-ordered; CMDB in multi-pass</text>
+  <text x="438" y="793" class="s">Guided manual steps for API gaps</text>
+  <text x="438" y="835" class="lbl">next</text>
+
+  <rect x="850" y="660" width="330" height="190" rx="10" class="tgt"/>
+  <text x="868" y="688" class="t">Atlassian target (sandbox first)</text>
+  <text x="868" y="713" class="s">Jira Service Management</text>
+  <text x="868" y="733" class="s">Assets (reference schemas)</text>
+  <text x="868" y="753" class="s">Jira · Confluence (knowledge)</text>
+  <text x="868" y="777" class="s">JSM instance only, no data migration</text>
+  <text x="868" y="835" class="lbl">vish-se-demo (Premium) for testing</text>
+
+  <rect x="1230" y="660" width="330" height="190" rx="10" class="next"/>
+  <text x="1248" y="688" class="t">Verify</text>
+  <text x="1248" y="713" class="s">Run each outcome's acceptance tests</text>
+  <text x="1248" y="733" class="s">(given / when / then) in the sandbox</text>
+  <text x="1248" y="753" class="s">API checks + guided manual checks</text>
+  <text x="1248" y="777" class="s">Report outcome parity → go-live</text>
+  <text x="1248" y="835" class="lbl">next</text>
+
+  <path d="M1380,465 V632 H610 V658" class="lg" marker-end="url(#g)"/>
+  <text x="1190" y="625" class="lbl">signed-off blueprint → build plan</text>
+  <path d="M370,755 h48" class="lg" marker-end="url(#g)"/>
+  <text x="378" y="745" class="lbl">MCP</text>
+  <path d="M800,755 h48" class="lg" marker-end="url(#g)"/>
+  <path d="M1180,755 h48" class="lg" marker-end="url(#g)"/>
+  <path d="M1395,850 v40 H205 V852" class="lg" marker-end="url(#g)"/>
+  <text x="640" y="910" class="lbl">verification results feed back into the plan and the Jira epic per capability</text>
+
+  <!-- Legend -->
+  <g transform="translate(40,945)">
+    <rect width="26" height="18" rx="3" class="built"/><text x="34" y="14" class="s">Built today</text>
+    <rect x="150" width="26" height="18" rx="3" class="next"/><text x="184" y="14" class="s">Next / planned</text>
+    <rect x="320" width="26" height="18" rx="3" class="ref"/><text x="354" y="14" class="s">Reference library (seeded, to verify)</text>
+    <rect x="610" width="26" height="18" rx="3" class="src"/><text x="644" y="14" class="s">Source (evidence)</text>
+    <rect x="790" width="26" height="18" rx="3" class="tgt"/><text x="824" y="14" class="s">Target platform</text>
+  </g>
+</svg>

@@ -13,6 +13,8 @@ export default defineConfig({
       '@snjsm/atlassian': pkg('atlassian'),
       '@snjsm/tools': pkg('tools'),
       '@snjsm/analyser': pkg('analyser'),
+      '@snjsm/builder': pkg('builder'),
+      '@snjsm/mcp-server': pkg('mcp-server'),
     },
   },
   test: {

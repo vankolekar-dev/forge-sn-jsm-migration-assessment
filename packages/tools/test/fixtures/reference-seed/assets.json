@@ -1,0 +1,20 @@
+{
+    "version": "0.1.0",
+    "description": "Atlassian Assets reference schemas: the starting point for every Assets/CMDB design. Unverified until captured from a real site.",
+    "artifacts": [
+        {
+            "id": "atl.assets.template.itam",
+            "kind": "assets-schema-template",
+            "product": "assets",
+            "name": "IT asset management",
+            "description": "Assets schema template for tracking hardware, software, models, vendors, locations and people.",
+            "attributes": { "suggestedKey": "ITAM" },
+            "verification": { "status": "unverified", "notes": "Capture the template's object types and attributes from vish-se-demo." }
+        },
+        { "id": "atl.assets.itam.object-type.hardware", "kind": "assets-object-type", "product": "assets", "partOf": "atl.assets.template.itam", "name": "Hardware", "verification": { "status": "unverified" } },
+        { "id": "atl.assets.itam.object-type.model", "kind": "assets-object-type", "product": "assets", "partOf": "atl.assets.template.itam", "name": "Model", "description": "Catalogue of approved hardware models (product catalogue).", "verification": { "status": "unverified", "notes": "If the template has no model or product type, the capability's 'Hardware model' type becomes an extension." } },
+        { "id": "atl.assets.itam.object-type.location", "kind": "assets-object-type", "product": "assets", "partOf": "atl.assets.template.itam", "name": "Location", "verification": { "status": "unverified" } },
+        { "id": "atl.assets.itam.object-type.person", "kind": "assets-object-type", "product": "assets", "partOf": "atl.assets.template.itam", "name": "Person", "description": "People synced from the identity provider or HR system. Holds manager and location references.", "verification": { "status": "unverified" } },
+        { "id": "atl.assets.template.services", "kind": "assets-schema-template", "product": "assets", "name": "Services", "description": "JSM services stored in Assets, used for incident/change impact.", "verification": { "status": "unverified" } }
+    ]
+}

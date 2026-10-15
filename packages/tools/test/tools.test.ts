@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AtlassianClient, type AtlassianAuth, type HttpFetch } from '@snjsm/atlassian';
-import { ReferenceFile, referenceArtifacts } from '@snjsm/reference';
-import jsmItsm from '../../reference/src/data/atlassian/jsm-itsm.json';
+import { ReferenceFile } from '@snjsm/reference';
+// A frozen copy of the unverified seed library (2026-10-14), so these tests do not change when the live library
+// is verified against a site.
+import jsmItsm from './fixtures/reference-seed/jsm-itsm.json';
+import assets from './fixtures/reference-seed/assets.json';
+import automation from './fixtures/reference-seed/automation.json';
+
+const seedArtifacts = () => [jsmItsm, assets, automation].flatMap((f) => ReferenceFile.parse(f).artifacts);
 import { applyReport, captureSite, compareCapture, diffStatuses, parseArgs, runSpike } from '../src';
 
 const auth: AtlassianAuth = { description: 'test', header: async () => 'Basic dGVzdA==' };
@@ -97,7 +103,7 @@ describe('capture + compare', () => {
     expect(cap.serviceDesk?.requestTypes.find((r) => r.name === 'Request new hardware')?.groups).toEqual(['Computers']);
     expect(cap.assets?.objectTypes.find((t) => t.name === 'Laptops')?.parent).toBe('Hardware');
 
-    const r = compareCapture(cap, referenceArtifacts(), { jsmTemplate: 'atl.jsm.template.itsm', assetsTemplate: 'atl.assets.template.itam' });
+    const r = compareCapture(cap, seedArtifacts(), { jsmTemplate: 'atl.jsm.template.itsm', assetsTemplate: 'atl.assets.template.itam' });
     const f = (id: string) => r.findings.find((x) => x.artifactId === id);
     expect(f('atl.jsm.template.itsm')?.result).toBe('matched');
     expect(f('atl.jsm.itsm.work-type.service-request')?.result).toBe('matched');
@@ -126,7 +132,7 @@ describe('applyReport', () => {
   it('verifies matches, corrects workflow statuses, flags the rest and never adds extras', async () => {
     const { fetch } = referenceSite();
     const cap = await captureSite(new AtlassianClient({ site: SITE, auth, fetch }), { projectKey: 'REFITSM' });
-    const report = compareCapture(cap, referenceArtifacts(), { jsmTemplate: 'atl.jsm.template.itsm' });
+    const report = compareCapture(cap, seedArtifacts(), { jsmTemplate: 'atl.jsm.template.itsm' });
     const file = ReferenceFile.parse(jsmItsm);
     const { file: next, changes } = applyReport(file, report, '2026-10-14');
     const a = (id: string) => next.artifacts.find((x) => x.id === id)!;

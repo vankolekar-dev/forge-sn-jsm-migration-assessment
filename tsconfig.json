@@ -18,6 +18,12 @@
     },
     {
       "path": "packages/analyser"
+    },
+    {
+      "path": "packages/builder"
+    },
+    {
+      "path": "packages/mcp-server"
     }
   ]
 }

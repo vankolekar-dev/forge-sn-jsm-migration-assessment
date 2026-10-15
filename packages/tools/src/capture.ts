@@ -102,7 +102,8 @@ export async function captureSite(c: AtlassianClient, opts: { projectKey?: strin
       cap.assets = { workspaceId, objectTypes: [], statusTypes: [] };
       const list = await attempt('assets schemas', () => c.assets('GET', '/objectschema/list?maxResults=100'));
       const schemas: any[] = (list as any)?.values ?? (list as any)?.objectschemas ?? [];
-      const s = schemas.find((x) => x.name?.toLowerCase() === opts.schemaName!.toLowerCase());
+      const key = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+      const s = schemas.find((x) => key(x.name) === key(opts.schemaName) || key(x.objectSchemaKey) === key(opts.schemaName));
       if (!s) {
         cap.unavailable.push({ what: 'assets schema', message: `schema "${opts.schemaName}" not found (found: ${schemas.map((x) => x.name).join(', ') || 'none'})` });
       } else {

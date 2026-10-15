@@ -28,6 +28,10 @@ SEs, partners and customers use it.
   mark something `verified` unless it was captured from a real Atlassian site.
 - Builds are declarative and idempotent (plan → dry-run → apply → verify). An LLM never calls Atlassian or
   ServiceNow APIs directly. It calls the deterministic tools exposed by the MCP server.
+- Build safety gates live in `packages/mcp-server/src/service.ts`, never in prompts. When orchestrating:
+  1. Show the dry-run to the person.
+  2. Call `build_apply` only with the `APPLY <planHash> TO <site>` phrase the person typed.
+  3. Call `build_confirm_manual` only after the person says they finished the guided step.
 - ServiceNow access is read-only (dedicated integration user + OAuth). Collect metadata and aggregate counts,
   not records, unless the user explicitly opts in.
 - Never commit secrets, customer snapshots, exports or reports. Test fixtures must be synthetic.

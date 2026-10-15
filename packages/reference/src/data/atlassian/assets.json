@@ -1,0 +1,163 @@
+{
+  "version": "0.1.0",
+  "description": "Atlassian Assets reference schemas: the starting point for every Assets/CMDB design. Unverified until captured from a real site.",
+  "artifacts": [
+    {
+      "id": "atl.assets.template.itam",
+      "kind": "assets-schema-template",
+      "product": "assets",
+      "name": "IT asset management",
+      "description": "Assets schema template for tracking hardware, software, models, vendors, locations and people.",
+      "attributes": {
+        "suggestedKey": "ITAM",
+        "captured": {
+          "schemaKey": "ZZITAM",
+          "objectTypes": [
+            {
+              "name": "Models"
+            },
+            {
+              "name": "Model Categories",
+              "parent": "Models"
+            },
+            {
+              "name": "Software Models",
+              "parent": "Models"
+            },
+            {
+              "name": "Hardware Models",
+              "parent": "Models"
+            },
+            {
+              "name": "Hardware Assets"
+            },
+            {
+              "name": "Phones",
+              "parent": "Hardware Assets"
+            },
+            {
+              "name": "Laptops",
+              "parent": "Hardware Assets"
+            },
+            {
+              "name": "Servers",
+              "parent": "Hardware Assets"
+            },
+            {
+              "name": "Red Hat Linux",
+              "parent": "Servers"
+            },
+            {
+              "name": "Windows Server",
+              "parent": "Servers"
+            },
+            {
+              "name": "Printers",
+              "parent": "Hardware Assets"
+            }
+          ],
+          "statusTypes": [
+            {
+              "name": "Disposed",
+              "category": "inactive"
+            },
+            {
+              "name": "In Stock",
+              "category": "pending"
+            },
+            {
+              "name": "In transit",
+              "category": "pending"
+            },
+            {
+              "name": "In Use",
+              "category": "active"
+            },
+            {
+              "name": "Inactive",
+              "category": "inactive"
+            },
+            {
+              "name": "Missing",
+              "category": "inactive"
+            },
+            {
+              "name": "Ordered",
+              "category": "pending"
+            },
+            {
+              "name": "Retired",
+              "category": "inactive"
+            }
+          ]
+        }
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)"
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.hardware",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Hardware",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {},
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.model",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Model",
+      "description": "Catalogue of approved hardware models (product catalogue).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {},
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.location",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Location",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {},
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.person",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Person",
+      "description": "People synced from the identity provider or HR system. Holds manager and location references.",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {},
+      "verification": {
+        "status": "unverified",
+        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+      }
+    },
+    {
+      "id": "atl.assets.template.services",
+      "kind": "assets-schema-template",
+      "product": "assets",
+      "name": "Services",
+      "description": "JSM services stored in Assets, used for incident/change impact.",
+      "attributes": {},
+      "verification": {
+        "status": "unverified"
+      }
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
-coverage/
+# Test coverage reports (root only: packages/reference/src/data/coverage is the API coverage register)
+/coverage/
 
 # Secrets — never commit credentials
 .env
@@ -15,7 +16,8 @@ secrets/
 # Customer data — assessment snapshots, exports and reports must never be committed.
 # Only synthetic fixtures under packages/*/test/fixtures are allowed.
 snapshots/
-data/
+# Root-level data dumps only: packages/reference/src/data is the reference library and must be committed.
+/data/
 out/
 reports/
 *.snapshot.json

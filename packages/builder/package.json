@@ -1,0 +1,13 @@
+{
+  "name": "@snjsm/builder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic, declarative build engine: Blueprint design → plan / dry-run / apply / verify with a state file",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@snjsm/atlassian": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "@snjsm/reference": "0.1.0"
+  }
+}

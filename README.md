@@ -20,7 +20,8 @@ Evidence (ServiceNow) → Outcome (platform-neutral, signed off) → Design (Atl
 | `packages/collector` | Read-only ServiceNow discovery: XML/update-set parser, OAuth client-credentials, Table API keyset paging, Aggregate API counts, Snapshot (XML or live: records + server-side aggregates; CMDB metadata and counts only) | ✅ Built; live run pending OAuth fix |
 | `packages/analyser` | Snapshot → evidence (all domains, script static analysis, duplicates) → 15 area assessments incl. CMDB → Assets rationalisation → practice & capability detection → parameter resolution → outcomes + acceptance tests → configured reference design → fit/gap, buildability, complexity score → Blueprint + Markdown report | ✅ Built; needs a real estate to tune |
 | `packages/tools` | Reference capture / compare against a real site, API coverage spike | ✅ Built; needs a valid Atlassian token |
-| `packages/builder`, `packages/mcp-server` | Declarative build engine (plan / dry-run / apply / verify) exposed to Rovo CLI | ⏳ Phase 1 |
+| `packages/builder` | Deterministic, declarative build engine: Blueprint design → plan / dry-run / apply / verify, a handler per element type (adopt template parts, create via API, guided steps for API gaps), state file, Jira work breakdown, in-memory fake site | ✅ Built; API contract unverified until write probes run in a sandbox |
+| `packages/mcp-server` | stdio MCP server + `npm run jsm` CLI over the same service; all safety gates live here | ✅ Built |
 | `apps/workbench` | Forge app (Jira global page): capabilities, outcome sign-off, design, build, report | ⏳ Phase 3 |
 
 ## Reference library rules
@@ -68,6 +69,71 @@ npm run analyse -- --instance <instance>.service-now.com --customer "Acme" --usa
 Writes `out/<customer>/snapshot.json`, `blueprint.json`, `assessment.json` and `assessment.md` (gitignored).
 Outcome parameters are resolved from evidence (approval conditions, fulfilment groups, item-level SLAs and
 schedules). When there is no evidence, the catalogue default is used and marked **low confidence** for the workshop.
+
+### Build the design (JSM instance only, no data migration)
+
+Each design element is either **adopted** (provided by the space template, bound after the space exists),
+**created** through the public API, or turned into a **guided step** (where to go, the exact values, how to check)
+when no API exists. The engine is additive and never deletes. Paths are relative to `SNJSM_WORKDIR` (default `out/`).
+
+```bash
+npm run jsm -- summary   --blueprint acme/blueprint.json
+npm run jsm -- space     --blueprint acme/blueprint.json --mode existing --key ITS        # or --mode new [--name …] [--key …]
+npm run jsm -- plan      --blueprint acme/blueprint.json                     # offline, nothing read
+npm run jsm -- dry-run   --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # read-only
+SNJSM_WRITE_SITES=acme-sandbox.atlassian.net \
+npm run jsm -- apply     --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --hash <planHash>
+npm run jsm -- manual    --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # guided steps
+npm run jsm -- confirm   --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --id ref.reports-to --remote-id 42
+npm run jsm -- verify    --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # read-only
+npm run jsm -- status | breakdown …                                          # state; one Jira epic per capability
+```
+
+Plans go to `out/plans/`, state to `out/state/<blueprintId>@<site>.json`, and run reports to `out/runs/`.
+
+**Target space.** Each space in the design is either `new` (created from the template) or `existing` (built into
+the space with that key; nothing is re-created). The dry-run checks the choice against the site:
+- **New space:** if the wanted key is taken or reserved, the dry-run blocks it. If no key is given, it picks a free
+  one from the name (e.g. `ISD` taken → `ISD2`).
+- **Same-named space:** a new space never silently takes over a space with the same name. The dry-run blocks it
+  until a person chooses.
+- **Existing space:** it must exist and be the right space type. Template parts are matched in it, including
+  `[System] …` names. Differences from the design are shown as guided steps.
+
+Changing the target records a decision. Any earlier sign-off then lapses, so the blueprint must be signed off again.
+
+**Safety gates.** apply runs only when every one of these holds:
+1. The site is listed in `SNJSM_WRITE_SITES`. Empty means apply is disabled.
+2. The blueprint was signed off after its last design change. Sandboxes can bypass this with `SNJSM_ALLOW_UNSIGNED=1`.
+3. A dry-run with that plan hash was produced for that site.
+4. A person typed exactly `APPLY <planHash> TO <site>`.
+5. A fresh read-only dry-run still has the same hash.
+
+Other protections: the state file is pinned to one blueprint and one site, locked while apply, confirm or verify
+is running, and written after every step. Credentials come from `ATL_EMAIL` / `ATL_API_TOKEN`, or from the Keychain
+items `atl-<site>-email` / `atl-<site>-api-token`.
+
+### Use from Rovo CLI (MCP)
+
+The tools are `blueprint_summary`, `build_plan`, `build_apply`, `build_manual_steps`, `build_confirm_manual`,
+`build_verify`, `build_status` and `build_work_breakdown`. Only `build_apply` writes to a site, and only behind the
+gates above. Run `npm run build` first, then register the server. For example, in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "snjsm-builder": {
+      "command": "node",
+      "args": ["/path/to/repo/packages/mcp-server/dist/server.js"],
+      "env": {
+        "SNJSM_WORKDIR": "/path/to/repo/out",
+        "SNJSM_SITE": "acme-sandbox.atlassian.net",
+        "SNJSM_WRITE_SITES": "acme-sandbox.atlassian.net"
+      }
+    }
+  }
+}
+```
 
 ## Data handling
 

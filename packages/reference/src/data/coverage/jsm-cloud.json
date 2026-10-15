@@ -1,0 +1,27 @@
+{
+  "version": "0.1.0",
+  "product": "Jira Service Management Cloud + Assets",
+  "entries": [
+    { "elementType": "space", "operation": "create", "status": "api", "confidence": "high", "api": "POST /rest/api/3/project (projectTemplateKey)", "verification": { "status": "unverified" } },
+    { "elementType": "work-type", "operation": "create", "status": "api", "confidence": "high", "api": "POST /rest/api/3/issuetype + issue type scheme APIs", "verification": { "status": "unverified" } },
+    { "elementType": "workflow", "operation": "create", "status": "api", "confidence": "medium", "api": "POST /rest/api/3/workflows/create + workflow scheme APIs", "notes": "JSM approval steps on workflow statuses may be UI-only.", "verification": { "status": "unverified" } },
+    { "elementType": "workflow", "operation": "configure", "aspect": "approval step", "status": "unknown", "confidence": "low", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "field", "operation": "create", "status": "api", "confidence": "high", "api": "POST /rest/api/3/field + /field/{id}/context + options", "verification": { "status": "unverified" } },
+    { "elementType": "field", "operation": "configure", "aspect": "Assets object field (AQL scope, display)", "status": "ui-only", "confidence": "medium", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "portal-group", "operation": "create", "status": "unknown", "confidence": "low", "notes": "Read is available via servicedeskapi requesttypegroup. Create is unconfirmed.", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "request-type", "operation": "create", "status": "partial", "confidence": "medium", "api": "POST /rest/servicedeskapi/servicedesk/{id}/requesttype (experimental)", "notes": "Creation is possible, but portal field layout is not fully configurable.", "verification": { "status": "unverified" } },
+    { "elementType": "request-type", "operation": "configure", "aspect": "field layout", "status": "ui-only", "confidence": "medium", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "form", "operation": "create", "status": "unknown", "confidence": "low", "notes": "Forms REST API covers form instances on work items. Creating form templates is unconfirmed.", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "calendar", "operation": "create", "status": "ui-only", "confidence": "medium", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "sla", "operation": "create", "status": "ui-only", "confidence": "medium", "fallback": "guided-manual", "notes": "SLA metrics and goals have no public create API as far as known.", "verification": { "status": "unverified" } },
+    { "elementType": "queue", "operation": "create", "status": "ui-only", "confidence": "medium", "notes": "servicedeskapi exposes queues read-only.", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "automation", "operation": "create", "status": "unknown", "confidence": "low", "notes": "Check the current automation rule management API. JSON import through the UI is the fallback.", "fallback": "import-json", "verification": { "status": "unverified" } },
+    { "elementType": "notification", "operation": "configure", "status": "ui-only", "confidence": "medium", "notes": "Customer notifications are configured per space in the UI.", "fallback": "guided-manual", "verification": { "status": "unverified" } },
+    { "elementType": "team", "operation": "create", "status": "api", "confidence": "medium", "api": "Atlassian Teams public REST API (org-scoped)", "notes": "Needs org id and the right admin permission.", "verification": { "status": "unverified" } },
+    { "elementType": "assets-schema", "operation": "create", "status": "api", "confidence": "high", "api": "POST /jsm/assets/workspace/{wid}/v1/objectschema/create", "verification": { "status": "unverified" } },
+    { "elementType": "assets-object-type", "operation": "create", "status": "api", "confidence": "high", "api": "POST /jsm/assets/workspace/{wid}/v1/objecttype/create (parentObjectTypeId, inherited)", "verification": { "status": "unverified" } },
+    { "elementType": "assets-attribute", "operation": "create", "status": "api", "confidence": "high", "api": "POST /jsm/assets/workspace/{wid}/v1/objecttypeattribute/{objectTypeId}", "verification": { "status": "unverified" } },
+    { "elementType": "assets-status-type", "operation": "create", "status": "api", "confidence": "medium", "api": "POST /jsm/assets/workspace/{wid}/v1/config/statustype", "verification": { "status": "unverified" } },
+    { "elementType": "assets-reference-type", "operation": "create", "status": "unknown", "confidence": "low", "fallback": "guided-manual", "notes": "Default reference types exist on every schema. Custom ones may be UI-only.", "verification": { "status": "unverified" } }
+  ]
+}

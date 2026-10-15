@@ -35,7 +35,8 @@ export interface CompareReport {
 
 type Status = { name: string; category: string };
 
-const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
+// Template work types can be named "[System] <name>" on a site; compare on the plain name.
+const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/^\[system\]\s*/, '');
 const byName = <T extends { name: string }>(items: T[] | undefined, name: string) => items?.find((i) => norm(i.name) === norm(name));
 
 /** Ordered-insensitive status comparison: names and categories. */

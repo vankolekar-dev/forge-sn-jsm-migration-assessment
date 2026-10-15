@@ -21,7 +21,9 @@
     "ref:capture": "tsx packages/tools/scripts/capture-reference.ts",
     "api:spike": "tsx packages/tools/scripts/api-spike.ts",
     "typecheck:all": "tsc -b && tsc -p tsconfig.check.json",
-    "analyse": "tsx packages/analyser/scripts/analyse.ts"
+    "analyse": "tsx packages/analyser/scripts/analyse.ts",
+    "jsm": "tsx packages/mcp-server/scripts/jsm.ts",
+    "mcp": "tsx packages/mcp-server/src/server.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

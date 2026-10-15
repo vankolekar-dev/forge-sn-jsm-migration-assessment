@@ -1,0 +1,147 @@
+{
+  "id": "itsm.request-hardware",
+  "domain": "ITSM",
+  "practice": "service-request",
+  "name": "Request hardware",
+  "description": "Employees request approved hardware (laptops, monitors, phones, accessories). Requests are approved when policy requires it, routed to the fulfilment team, delivered within an agreed time, and the requester is kept informed.",
+  "version": "0.1.0",
+  "dependsOn": [],
+  "verification": { "status": "unverified", "notes": "Reference design is built on unverified reference artifacts. Re-verify after capture." },
+  "signals": [
+    { "description": "Catalog items for hardware", "tables": ["sc_cat_item", "sc_cat_item_producer"], "keywords": ["hardware", "laptop", "desktop", "monitor", "computer", "mobile", "phone", "tablet", "peripheral", "accessory", "keyboard", "headset"], "evidenceKinds": ["catalog-item", "record-producer"], "weight": 0.9 },
+    { "description": "Hardware catalog categories", "tables": ["sc_category"], "keywords": ["hardware", "computers", "devices", "mobile"], "evidenceKinds": ["catalog-category"], "weight": 0.6 },
+    { "description": "Hardware models and asset classes", "tables": ["cmdb_model", "cmdb_hardware_product_model", "alm_hardware"], "keywords": [], "evidenceKinds": ["hardware-model", "asset-class"], "weight": 0.5 },
+    { "description": "Approval logic on requested items", "tables": ["sysapproval_approver", "sys_hub_flow", "wf_workflow"], "keywords": ["approval", "manager approval", "cost"], "evidenceKinds": ["approval-rule", "flow", "legacy-workflow"], "weight": 0.4 },
+    { "description": "Fulfilment SLAs on requested items", "tables": ["contract_sla"], "keywords": ["sc_req_item", "requested item", "fulfil"], "evidenceKinds": ["sla-definition"], "weight": 0.4 }
+  ],
+  "outcomes": [
+    {
+      "id": "itsm.request-hardware.o.intake",
+      "category": "intake",
+      "statement": "Employees can request hardware from the self-service portal by choosing an approved model, and are asked only for the information that model needs.",
+      "parameters": [],
+      "deliveredBy": ["rt.request-new-hardware", "form.request-hardware", "fld.hardware-model", "as.ot.hardware-model"],
+      "evidenceHints": ["Catalog items and variables show which models and questions exist today; many items usually collapse into one request type with a model picker."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.intake.ac1",
+          "given": "an employee signed in to the help center",
+          "when": "they open 'Request new hardware' and select an approved model",
+          "then": ["only models marked as approved can be selected", "the request is created with the selected model linked"],
+          "verification": "automated",
+          "check": [{ "kind": "create-request", "spec": { "requestType": "rt.request-new-hardware", "fields": { "fld.hardware-model": "<approved-model>" } } }, { "kind": "assert-field", "spec": { "field": "fld.hardware-model", "notEmpty": true } }]
+        }
+      ]
+    },
+    {
+      "id": "itsm.request-hardware.o.approval",
+      "category": "approval",
+      "statement": "Requests for non-standard models, or costing more than {{costThreshold}}, need approval from the requester's manager before fulfilment. Declined requests are closed and the requester is told why.",
+      "parameters": [
+        { "name": "costThreshold", "type": "number", "description": "Unit cost above which manager approval is required", "default": 1000, "required": true }
+      ],
+      "deliveredBy": ["wf.service-request-approvals", "auto.set-approvers-manager", "auto.auto-approve-standard", "fld.approvers"],
+      "evidenceHints": ["Approval rules, flow approval steps and approval conditions set costThreshold and which models are standard."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.approval.ac1",
+          "given": "a standard model that costs less than {{costThreshold}}",
+          "when": "an employee submits the request",
+          "then": ["no approval is requested", "the request moves straight to 'Waiting for support'"],
+          "verification": "automated",
+          "check": [{ "kind": "create-request", "spec": { "requestType": "rt.request-new-hardware", "model": "standard-under-threshold" } }, { "kind": "assert-status", "spec": { "status": "Waiting for support", "withinSeconds": 120 } }]
+        },
+        {
+          "id": "itsm.request-hardware.o.approval.ac2",
+          "given": "a non-standard model, or one that costs more than {{costThreshold}}",
+          "when": "an employee submits the request",
+          "then": ["the request waits for approval", "the requester's manager is the approver"],
+          "verification": "automated",
+          "check": [{ "kind": "create-request", "spec": { "requestType": "rt.request-new-hardware", "model": "over-threshold" } }, { "kind": "assert-status", "spec": { "status": "Waiting for approval" } }, { "kind": "assert-field", "spec": { "field": "fld.approvers", "equals": "<requester-manager>" } }]
+        },
+        {
+          "id": "itsm.request-hardware.o.approval.ac3",
+          "given": "a request waiting for approval",
+          "when": "the manager declines it with a reason",
+          "then": ["the request is closed as Declined", "the requester is notified with the reason"],
+          "verification": "automated",
+          "check": [{ "kind": "decline", "spec": { "comment": "Not budgeted" } }, { "kind": "assert-status", "spec": { "status": "Declined" } }, { "kind": "assert-notification", "spec": { "audience": "customer" } }]
+        }
+      ]
+    },
+    {
+      "id": "itsm.request-hardware.o.routing",
+      "category": "routing",
+      "statement": "Approved requests are routed automatically to the {{fulfilmentTeam}} team, with no manual triage.",
+      "parameters": [{ "name": "fulfilmentTeam", "type": "string", "description": "Team that fulfils hardware requests", "default": "Hardware fulfilment", "required": true }],
+      "deliveredBy": ["team.hardware-fulfilment", "auto.route-to-team", "q.hardware-requests"],
+      "evidenceHints": ["Assignment rules, assignment groups on catalog items and flow 'assign' steps name today's fulfilment group(s)."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.routing.ac1",
+          "given": "a hardware request that is approved or needs no approval",
+          "when": "it reaches 'Waiting for support'",
+          "then": ["the Team field is set to {{fulfilmentTeam}}", "it appears in the team's hardware queue"],
+          "verification": "automated",
+          "check": [{ "kind": "assert-field", "spec": { "field": "team", "equals": "{{fulfilmentTeam}}" } }]
+        }
+      ]
+    },
+    {
+      "id": "itsm.request-hardware.o.service-level",
+      "category": "service-level",
+      "statement": "Requesters get a first response within {{firstResponse}}, and hardware is delivered within {{fulfilmentTime}} of approval, measured in business hours.",
+      "parameters": [
+        { "name": "firstResponse", "type": "duration", "description": "Time to first response goal", "default": { "value": 8, "unit": "business-hours" }, "required": true },
+        { "name": "fulfilmentTime", "type": "duration", "description": "Time to resolution goal, measured from approval", "default": { "value": 5, "unit": "business-days" }, "required": true }
+      ],
+      "deliveredBy": ["sla.first-response", "sla.time-to-resolution", "cal.business-hours"],
+      "evidenceHints": ["SLA definitions on sc_req_item / sc_task and their schedules set the goals and the calendar."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.service-level.ac1",
+          "given": "a hardware request",
+          "when": "it is created and then approved",
+          "then": ["'Time to first response' starts at creation with a goal of {{firstResponse}}", "'Time to resolution' starts at approval with a goal of {{fulfilmentTime}}, pausing while waiting for the customer"],
+          "verification": "automated",
+          "check": [{ "kind": "assert-sla", "spec": { "sla": "sla.time-to-resolution", "running": true } }]
+        }
+      ]
+    },
+    {
+      "id": "itsm.request-hardware.o.communication",
+      "category": "communication",
+      "statement": "Requesters are notified when their request needs approval, is approved or declined, and is fulfilled, and can see its status in the portal at any time.",
+      "parameters": [],
+      "deliveredBy": ["notif.customer-defaults", "rt.request-new-hardware"],
+      "evidenceHints": ["Notifications on sc_request / sc_req_item show which events customers are told about today."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.communication.ac1",
+          "given": "a hardware request",
+          "when": "it is resolved",
+          "then": ["the requester receives a resolution notification", "the portal shows the request as resolved"],
+          "verification": "automated",
+          "check": [{ "kind": "transition", "spec": { "to": "Resolved" } }, { "kind": "assert-notification", "spec": { "audience": "customer", "event": "resolved" } }]
+        }
+      ]
+    },
+    {
+      "id": "itsm.request-hardware.o.visibility",
+      "category": "visibility",
+      "statement": "The fulfilment team lead can see all open hardware requests by status and SLA risk.",
+      "parameters": [],
+      "deliveredBy": ["q.hardware-requests"],
+      "evidenceHints": ["Reports, dashboards and list filters on hardware requested items."],
+      "acceptance": [
+        {
+          "id": "itsm.request-hardware.o.visibility.ac1",
+          "given": "open hardware requests with different statuses",
+          "when": "the team lead opens the 'Hardware requests' queue",
+          "then": ["all open hardware requests are listed", "they are ordered by time remaining on 'Time to resolution'"],
+          "verification": "manual"
+        }
+      ]
+    }
+  ]
+}

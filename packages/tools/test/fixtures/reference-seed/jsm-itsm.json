@@ -1,0 +1,107 @@
+{
+    "version": "0.1.0",
+    "description": "Jira Service Management IT service management (ITSM) template: the reference model for ITSM capabilities. Seeded from product knowledge. Every entry stays 'unverified' until it is captured from a real site (vish-se-demo) by the reference capture tool.",
+    "artifacts": [
+        {
+            "id": "atl.jsm.template.itsm",
+            "kind": "project-template",
+            "product": "jsm",
+            "name": "IT service management",
+            "description": "JSM ITSM project template with request, incident, problem, change and post-incident review practices.",
+            "attributes": { "projectTypeKey": "service_desk", "templateKey": "com.atlassian.servicedesk:itil-v2-service-desk-project" },
+            "verification": { "status": "unverified", "notes": "Confirm the template key and contents with the reference capture tool." }
+        },
+        {
+            "id": "atl.jsm.itsm.work-type.service-request",
+            "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Service request",
+            "attributes": { "workflow": "atl.jsm.itsm.workflow.service-request-fulfilment" },
+            "verification": { "status": "unverified" }
+        },
+        {
+            "id": "atl.jsm.itsm.work-type.service-request-with-approvals",
+            "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Service request with approvals",
+            "attributes": { "workflow": "atl.jsm.itsm.workflow.service-request-fulfilment-with-approvals" },
+            "verification": { "status": "unverified" }
+        },
+        { "id": "atl.jsm.itsm.work-type.incident", "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Incident", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.itsm.work-type.problem", "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Problem", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.itsm.work-type.change", "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Change", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.itsm.work-type.post-incident-review", "kind": "work-type", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Post-incident review", "verification": { "status": "unverified" } },
+        {
+            "id": "atl.jsm.itsm.workflow.service-request-fulfilment-with-approvals",
+            "kind": "workflow", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Service request fulfilment with approvals workflow",
+            "attributes": {
+                "statuses": [
+                    { "name": "Waiting for approval", "category": "TODO" },
+                    { "name": "Waiting for support", "category": "TODO" },
+                    { "name": "In progress", "category": "IN_PROGRESS" },
+                    { "name": "Pending", "category": "IN_PROGRESS" },
+                    { "name": "Waiting for customer", "category": "IN_PROGRESS" },
+                    { "name": "Resolved", "category": "DONE" },
+                    { "name": "Declined", "category": "DONE" },
+                    { "name": "Canceled", "category": "DONE" },
+                    { "name": "Closed", "category": "DONE" }
+                ],
+                "approvalStatus": "Waiting for approval",
+                "approverSource": "Approvers field"
+            },
+            "verification": { "status": "unverified", "notes": "Status names and categories must be captured from the site." }
+        },
+        {
+            "id": "atl.jsm.itsm.workflow.service-request-fulfilment",
+            "kind": "workflow", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Service request fulfilment workflow",
+            "attributes": {
+                "statuses": [
+                    { "name": "Waiting for support", "category": "TODO" },
+                    { "name": "In progress", "category": "IN_PROGRESS" },
+                    { "name": "Pending", "category": "IN_PROGRESS" },
+                    { "name": "Waiting for customer", "category": "IN_PROGRESS" },
+                    { "name": "Resolved", "category": "DONE" },
+                    { "name": "Canceled", "category": "DONE" },
+                    { "name": "Closed", "category": "DONE" }
+                ]
+            },
+            "verification": { "status": "unverified" }
+        },
+        {
+            "id": "atl.jsm.itsm.request-type.request-new-hardware",
+            "kind": "request-type", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Request new hardware",
+            "attributes": { "workType": "atl.jsm.itsm.work-type.service-request-with-approvals", "portalGroup": "atl.jsm.itsm.portal-group.computers" },
+            "verification": { "status": "unverified", "notes": "Confirm the default request type name, work type and group." }
+        },
+        {
+            "id": "atl.jsm.itsm.request-type.report-broken-hardware",
+            "kind": "request-type", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Report broken hardware",
+            "attributes": { "workType": "atl.jsm.itsm.work-type.incident" },
+            "verification": { "status": "unverified" }
+        },
+        { "id": "atl.jsm.itsm.portal-group.computers", "kind": "portal-group", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Computers", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.itsm.portal-group.common-requests", "kind": "portal-group", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Common requests", "verification": { "status": "unverified" } },
+        {
+            "id": "atl.jsm.itsm.sla.time-to-first-response",
+            "kind": "sla", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Time to first response",
+            "attributes": { "start": ["Issue created"], "stop": ["Comment: For customers", "Entered status: Resolved", "Entered status: Canceled", "Entered status: Declined"] },
+            "verification": { "status": "unverified" }
+        },
+        {
+            "id": "atl.jsm.itsm.sla.time-to-resolution",
+            "kind": "sla", "product": "jsm", "partOf": "atl.jsm.template.itsm",
+            "name": "Time to resolution",
+            "attributes": { "start": ["Issue created"], "pause": ["Status: Waiting for customer", "Status: Pending"], "stop": ["Resolution: Set"] },
+            "verification": { "status": "unverified" }
+        },
+        { "id": "atl.jsm.itsm.sla.time-to-close-after-resolution", "kind": "sla", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Time to close after resolution", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.calendar.sample-9-5", "kind": "calendar", "product": "jsm", "name": "Sample 9-5 Calendar", "attributes": { "days": ["MON", "TUE", "WED", "THU", "FRI"], "start": "09:00", "end": "17:00" }, "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.itsm.queue.service-requests", "kind": "queue", "product": "jsm", "partOf": "atl.jsm.template.itsm", "name": "Service requests", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.field.approvers", "kind": "field", "product": "jsm", "name": "Approvers", "description": "Multi-user field that JSM approval steps read approvers from.", "verification": { "status": "unverified" } },
+        { "id": "atl.jsm.notification.customer-defaults", "kind": "notification", "product": "jsm", "name": "Default customer notifications", "description": "Request created, public comment added, request resolved, approval required.", "verification": { "status": "unverified" } },
+        { "id": "atl.platform.team.atlassian-teams", "kind": "team-pattern", "product": "platform", "name": "Atlassian Teams", "description": "Use Atlassian Teams with the Team field for routing and ownership instead of creating per-queue groups.", "verification": { "status": "unverified" } }
+    ]
+}

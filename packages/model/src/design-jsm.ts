@@ -5,13 +5,23 @@ import { Duration, Id } from './common';
 
 export const StatusCategory = z.enum(['TODO', 'IN_PROGRESS', 'DONE']);
 
-export const SpaceSpec = z.object({
-  name: z.string().min(1),
-  key: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/).optional(),
-  productType: z.enum(['service_desk', 'software', 'business']).default('service_desk'),
-  templateKey: z.string().describe('Atlassian project template key, e.g. the JSM IT service management template'),
-  description: z.string().optional(),
-});
+export const SpaceSpec = z
+  .object({
+    name: z.string().min(1),
+    mode: z
+      .enum(['new', 'existing'])
+      .default('new')
+      .describe('new: create the space from the template; existing: build into the space with this key (nothing is re-created)'),
+    key: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9]{1,9}$/)
+      .optional()
+      .describe('new: the wanted key (a free key is chosen from the name when omitted); existing: the key of the space'),
+    productType: z.enum(['service_desk', 'software', 'business']).default('service_desk'),
+    templateKey: z.string().describe('Atlassian project template key, e.g. the JSM IT service management template'),
+    description: z.string().optional(),
+  })
+  .refine((s) => s.mode !== 'existing' || Boolean(s.key), { message: 'building into an existing space needs its key', path: ['key'] });
 
 export const WorkTypeSpec = z.object({
   name: z.string().min(1),

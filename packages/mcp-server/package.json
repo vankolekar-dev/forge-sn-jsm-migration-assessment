@@ -1,0 +1,16 @@
+{
+  "name": "@snjsm/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server (stdio) exposing the deterministic build engine to Rovo CLI: plan, dry-run, gated apply, guided steps, verify",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": { "snjsm-mcp": "dist/server.js" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@snjsm/atlassian": "0.1.0",
+    "@snjsm/builder": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "zod": "^4.1.0"
+  }
+}
