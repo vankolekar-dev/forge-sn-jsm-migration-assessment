@@ -1,49 +1,271 @@
 [
-  { "id": "team.hardware-fulfilment", "type": "team", "name": "Hardware fulfilment", "origin": "reference-configured", "referenceId": "atl.platform.team.atlassian-teams", "spec": { "name": "{{fulfilmentTeam}}", "purpose": "Sources, configures and delivers hardware.", "kind": "atlassian-team" } },
   {
-    "id": "cal.business-hours", "type": "calendar", "name": "Business hours", "origin": "reference-configured", "referenceId": "atl.jsm.calendar.sample-9-5",
-    "spec": { "name": "Business hours", "timeZone": "UTC", "workingHours": [ { "days": ["MON", "TUE", "WED", "THU", "FRI"], "start": "09:00", "end": "17:00" } ], "holidays": [] }
+    "id": "team.hardware-fulfilment",
+    "type": "team",
+    "name": "Hardware fulfilment",
+    "origin": "reference-configured",
+    "referenceId": "atl.platform.team.atlassian-teams",
+    "spec": {
+      "name": "{{fulfilmentTeam}}",
+      "purpose": "Sources, configures and delivers hardware.",
+      "kind": "atlassian-team"
+    }
   },
   {
-    "id": "sla.first-response", "type": "sla", "name": "Time to first response", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.sla.time-to-first-response",
-    "spec": { "name": "Time to first response", "spaceId": "sp.it-service-desk", "start": ["Issue created"], "pause": [], "stop": ["Comment: For customers", "Entered status: Resolved", "Entered status: Declined", "Entered status: Canceled"],
-      "goals": [ { "jql": "\"Request Type\" = \"Request new hardware\"", "target": { "value": 8, "unit": "business-hours" }, "calendarId": "cal.business-hours" } ] }
+    "id": "cal.business-hours",
+    "type": "calendar",
+    "name": "Business hours",
+    "origin": "reference-configured",
+    "referenceId": "atl.jsm.calendar.sample-9-5",
+    "spec": {
+      "name": "Business hours",
+      "timeZone": "UTC",
+      "workingHours": [
+        {
+          "days": [
+            "MON",
+            "TUE",
+            "WED",
+            "THU",
+            "FRI"
+          ],
+          "start": "09:00",
+          "end": "17:00"
+        }
+      ],
+      "holidays": []
+    }
   },
   {
-    "id": "sla.time-to-resolution", "type": "sla", "name": "Time to resolution", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.sla.time-to-resolution",
-    "spec": { "name": "Time to resolution", "spaceId": "sp.it-service-desk", "start": ["Entered status: Waiting for support"], "pause": ["Status: Waiting for customer"], "stop": ["Resolution: Set"],
-      "goals": [ { "jql": "\"Request Type\" = \"Request new hardware\"", "target": { "value": 5, "unit": "business-days" }, "calendarId": "cal.business-hours" } ] }
+    "id": "sla.first-response",
+    "type": "sla",
+    "name": "Time to first response",
+    "origin": "reference-configured",
+    "referenceId": "atl.jsm.itsm.sla.time-to-first-response",
+    "spec": {
+      "name": "Time to first response",
+      "spaceId": "sp.it-service-desk",
+      "start": [
+        "Issue created"
+      ],
+      "pause": [],
+      "stop": [
+        "Comment: For customers",
+        "Entered status: Resolved",
+        "Entered status: Canceled"
+      ],
+      "goals": [
+        {
+          "jql": "\"Request Type\" = \"Request hardware\"",
+          "target": {
+            "value": 8,
+            "unit": "business-hours"
+          },
+          "calendarId": "cal.business-hours"
+        }
+      ]
+    }
   },
   {
-    "id": "q.hardware-requests", "type": "queue", "name": "Hardware requests", "origin": "reference-configured", "referenceId": "atl.jsm.itsm.queue.service-requests",
-    "spec": { "name": "Hardware requests", "spaceId": "sp.it-service-desk", "jql": "\"Request Type\" = \"Request new hardware\" AND resolution = EMPTY ORDER BY \"Time to resolution\" ASC", "columns": ["Key", "Summary", "Status", "Hardware model", "Time to resolution", "Team"] }
+    "id": "sla.time-to-resolution",
+    "type": "sla",
+    "name": "Time to resolution",
+    "origin": "reference-configured",
+    "referenceId": "atl.jsm.itsm.sla.time-to-resolution",
+    "spec": {
+      "name": "Time to resolution",
+      "spaceId": "sp.it-service-desk",
+      "start": [
+        "Entered status: Waiting for support"
+      ],
+      "pause": [
+        "Status: Waiting for customer"
+      ],
+      "stop": [
+        "Resolution: Set"
+      ],
+      "goals": [
+        {
+          "jql": "\"Request Type\" = \"Request hardware\"",
+          "target": {
+            "value": 5,
+            "unit": "business-days"
+          },
+          "calendarId": "cal.business-hours"
+        }
+      ]
+    }
   },
   {
-    "id": "auto.set-approvers-manager", "type": "automation", "name": "Set approver to requester's manager", "origin": "reference-configured", "referenceId": "atl.automation.pattern.set-approvers-from-assets",
-    "dependsOn": ["fld.approvers", "as.attr.person-manager", "rt.request-new-hardware"],
-    "spec": { "name": "Hardware request: set approver to requester's manager", "scope": { "spaceIds": ["sp.it-service-desk"] },
-      "trigger": { "type": "work-item-created", "config": { "requestType": "rt.request-new-hardware" } },
+    "id": "q.hardware-requests",
+    "type": "queue",
+    "name": "Hardware requests",
+    "origin": "reference-configured",
+    "referenceId": "atl.jsm.itsm.queue.service-requests",
+    "spec": {
+      "name": "Hardware requests",
+      "spaceId": "sp.it-service-desk",
+      "jql": "\"Request Type\" = \"Request hardware\" AND resolution = EMPTY ORDER BY \"Time to resolution\" ASC",
+      "columns": [
+        "Key",
+        "Summary",
+        "Status",
+        "Hardware model",
+        "Time to resolution",
+        "Team"
+      ]
+    }
+  },
+  {
+    "id": "auto.set-approvers-manager",
+    "type": "automation",
+    "name": "Set approver to requester's manager",
+    "origin": "reference-configured",
+    "referenceId": "atl.automation.pattern.set-approvers-from-assets",
+    "dependsOn": [
+      "fld.approvers",
+      "as.attr.person-manager",
+      "rt.request-new-hardware"
+    ],
+    "spec": {
+      "name": "Hardware request: set approver to requester's manager",
+      "scope": {
+        "spaceIds": [
+          "sp.it-service-desk"
+        ]
+      },
+      "trigger": {
+        "type": "work-item-created",
+        "config": {
+          "requestType": "rt.request-new-hardware"
+        }
+      },
       "conditions": [],
       "actions": [
-        { "type": "lookup-assets-objects", "config": { "aql": "objectType = Person AND User = {{reporter.accountId}}" } },
-        { "type": "edit-field", "config": { "field": "fld.approvers", "value": "{{lookupObjects.Manager.User}}" } }
-      ] }
+        {
+          "type": "lookup-assets-objects",
+          "config": {
+            "aql": "objectType = Person AND User = {{reporter.accountId}}"
+          }
+        },
+        {
+          "type": "edit-field",
+          "config": {
+            "field": "fld.approvers",
+            "value": "{{lookupObjects.Manager.User}}"
+          }
+        }
+      ]
+    }
   },
   {
-    "id": "auto.auto-approve-standard", "type": "automation", "name": "Auto-approve standard hardware under threshold", "origin": "reference-configured", "referenceId": "atl.automation.pattern.auto-approve",
-    "dependsOn": ["fld.hardware-model", "as.attr.model-standard", "as.attr.model-unit-cost", "wf.service-request-approvals"],
-    "spec": { "name": "Hardware request: auto-approve standard models under threshold", "scope": { "spaceIds": ["sp.it-service-desk"] },
-      "trigger": { "type": "work-item-created", "config": { "requestType": "rt.request-new-hardware" } },
-      "conditions": [ { "type": "assets-attribute-compare", "config": { "field": "fld.hardware-model", "attribute": "Standard", "equals": true } }, { "type": "assets-attribute-compare", "config": { "field": "fld.hardware-model", "attribute": "Unit cost", "lessThan": "{{costThreshold}}" } } ],
-      "actions": [ { "type": "transition", "config": { "transition": "t.approve" } }, { "type": "comment", "config": { "internal": true, "body": "Auto-approved: standard model under the approval threshold." } } ] }
+    "id": "auto.auto-approve-standard",
+    "type": "automation",
+    "name": "Auto-approve standard hardware under threshold",
+    "origin": "reference-configured",
+    "referenceId": "atl.automation.pattern.auto-approve",
+    "dependsOn": [
+      "fld.hardware-model",
+      "as.attr.model-standard",
+      "as.attr.model-unit-cost",
+      "wf.service-request-approvals"
+    ],
+    "spec": {
+      "name": "Hardware request: auto-approve standard models under threshold",
+      "scope": {
+        "spaceIds": [
+          "sp.it-service-desk"
+        ]
+      },
+      "trigger": {
+        "type": "work-item-created",
+        "config": {
+          "requestType": "rt.request-new-hardware"
+        }
+      },
+      "conditions": [
+        {
+          "type": "assets-attribute-compare",
+          "config": {
+            "field": "fld.hardware-model",
+            "attribute": "Standard",
+            "equals": true
+          }
+        },
+        {
+          "type": "assets-attribute-compare",
+          "config": {
+            "field": "fld.hardware-model",
+            "attribute": "Unit Price",
+            "lessThan": "{{costThreshold}}"
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "transition",
+          "config": {
+            "transition": "t.approve"
+          }
+        },
+        {
+          "type": "comment",
+          "config": {
+            "internal": true,
+            "body": "Auto-approved: standard model under the approval threshold."
+          }
+        }
+      ]
+    }
   },
   {
-    "id": "auto.route-to-team", "type": "automation", "name": "Route approved hardware requests to fulfilment team", "origin": "reference-configured", "referenceId": "atl.automation.pattern.route-to-team",
-    "dependsOn": ["team.hardware-fulfilment", "rt.request-new-hardware"],
-    "spec": { "name": "Hardware request: route to fulfilment team", "scope": { "spaceIds": ["sp.it-service-desk"] },
-      "trigger": { "type": "work-item-transitioned", "config": { "to": "Waiting for support", "requestType": "rt.request-new-hardware" } },
+    "id": "auto.route-to-team",
+    "type": "automation",
+    "name": "Route approved hardware requests to fulfilment team",
+    "origin": "reference-configured",
+    "referenceId": "atl.automation.pattern.route-to-team",
+    "dependsOn": [
+      "team.hardware-fulfilment",
+      "rt.request-new-hardware"
+    ],
+    "spec": {
+      "name": "Hardware request: route to fulfilment team",
+      "scope": {
+        "spaceIds": [
+          "sp.it-service-desk"
+        ]
+      },
+      "trigger": {
+        "type": "work-item-transitioned",
+        "config": {
+          "to": "Waiting for support",
+          "requestType": "rt.request-new-hardware"
+        }
+      },
       "conditions": [],
-      "actions": [ { "type": "edit-field", "config": { "field": "team", "value": "team.hardware-fulfilment" } } ] }
+      "actions": [
+        {
+          "type": "edit-field",
+          "config": {
+            "field": "team",
+            "value": "team.hardware-fulfilment"
+          }
+        }
+      ]
+    }
   },
-  { "id": "notif.customer-defaults", "type": "notification", "name": "Customer notifications", "origin": "reference", "referenceId": "atl.jsm.notification.customer-defaults", "spec": { "name": "Default customer notifications", "spaceId": "sp.it-service-desk", "audience": "customer", "event": "request-created, approval-required, public-comment, resolved", "channel": "email" } }
+  {
+    "id": "notif.customer-defaults",
+    "type": "notification",
+    "name": "Customer notifications",
+    "origin": "reference",
+    "referenceId": "atl.jsm.notification.customer-defaults",
+    "spec": {
+      "name": "Default customer notifications",
+      "spaceId": "sp.it-service-desk",
+      "audience": "customer",
+      "event": "request-created, approval-required, public-comment, resolved",
+      "channel": "email"
+    }
+  }
 ]

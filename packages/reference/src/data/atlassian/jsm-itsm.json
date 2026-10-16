@@ -152,8 +152,10 @@
       "partOf": "atl.jsm.template.itsm",
       "attributes": {},
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): work type not in project ZZREF"
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not created by the IT service management template (company-managed space)"
       }
     },
     {
@@ -208,13 +210,104 @@
           "usedBy": [
             "Service Request with Approvals"
           ]
-        }
+        },
+        "initialStatus": "Waiting for approval",
+        "transitions": [
+          {
+            "name": "Approved",
+            "from": [
+              "Waiting for approval"
+            ],
+            "to": "Waiting for support"
+          },
+          {
+            "name": "Declined",
+            "from": [
+              "Waiting for approval"
+            ],
+            "to": "Resolved",
+            "setsResolution": "Declined",
+            "screen": true
+          },
+          {
+            "name": "In progress",
+            "from": [
+              "Waiting for support",
+              "Pending",
+              "Waiting for customer",
+              "Escalated"
+            ],
+            "to": "In Progress"
+          },
+          {
+            "name": "Respond to customer",
+            "from": [
+              "Waiting for support",
+              "In Progress",
+              "Pending",
+              "Escalated"
+            ],
+            "to": "Waiting for customer"
+          },
+          {
+            "name": "Respond to support",
+            "from": [
+              "Waiting for customer"
+            ],
+            "to": "Waiting for support"
+          },
+          {
+            "name": "Pending",
+            "from": [
+              "Waiting for support",
+              "In Progress",
+              "Waiting for customer",
+              "Escalated"
+            ],
+            "to": "Pending"
+          },
+          {
+            "name": "Escalate",
+            "from": [
+              "Waiting for support",
+              "In Progress",
+              "Pending",
+              "Waiting for customer"
+            ],
+            "to": "Escalated"
+          },
+          {
+            "name": "Resolve this issue",
+            "from": [
+              "Waiting for support",
+              "In Progress",
+              "Pending",
+              "Waiting for customer",
+              "Escalated"
+            ],
+            "to": "Resolved",
+            "screen": true
+          },
+          {
+            "name": "Cancel request",
+            "from": [
+              "Waiting for approval",
+              "Waiting for support",
+              "In Progress",
+              "Pending",
+              "Waiting for customer",
+              "Escalated"
+            ],
+            "to": "Canceled",
+            "screen": true
+          }
+        ]
       },
       "verification": {
         "status": "verified",
         "verifiedOn": "2026-10-15",
-        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z)",
-        "notes": "statuses replaced from site: status \"Waiting for support\" category IN_PROGRESS, expected TODO; status \"Declined\" missing; extra status \"Escalated\" (IN_PROGRESS)"
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "statuses and the approve / decline transitions read from the site. \"Declined\" is a transition from Waiting for approval to Resolved that sets resolution Declined; there is no Declined status. Approval conditions are not readable through the API. Other transitions are recorded by name; their from-statuses are the usual template paths and only Approved / Declined were checked in detail."
       }
     },
     {
@@ -279,7 +372,7 @@
       "name": "Request new hardware",
       "partOf": "atl.jsm.template.itsm",
       "attributes": {
-        "workType": "atl.jsm.itsm.work-type.service-request-with-approvals",
+        "workType": "atl.jsm.itsm.work-type.service-request",
         "portalGroup": "atl.jsm.itsm.portal-group.computers",
         "captured": {
           "workType": "Service Request",
@@ -306,9 +399,12 @@
         }
       },
       "verification": {
-        "status": "unverified",
-        "notes": "mismatched on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): work type \"Service Request\", expected \"Service request with approvals\""
-      }
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "work type is Service Request (no approvals), not Service request with approvals; portal group Computers; fields Summary, \"Why do you need this?\" (description), Attachment"
+      },
+      "description": "Template request type for new hardware. It uses Service Request, which has no approval step: a hardware request that needs approval needs a request type on Service request with approvals."
     },
     {
       "id": "atl.jsm.itsm.request-type.report-broken-hardware",
@@ -320,8 +416,10 @@
         "workType": "atl.jsm.itsm.work-type.incident"
       },
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): request type not on the service desk"
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not created by the IT service management template"
       }
     },
     {

@@ -28,11 +28,19 @@ export class ApiTokenAuth implements AtlassianAuth {
 }
 
 export class AtlassianError extends Error {
-  constructor(message: string, readonly status: number, readonly method: string, readonly path: string, readonly body?: unknown) {
+  /**
+   * True when a write may or may not have been applied: a non-idempotent request (e.g. POST create) that got a
+   * 5xx or no response. Never re-send it blindly; check whether the item exists first.
+   */
+  readonly uncertain: boolean;
+  constructor(message: string, readonly status: number, readonly method: string, readonly path: string, readonly body?: unknown, uncertain = false) {
     super(message);
     this.name = 'AtlassianError';
+    this.uncertain = uncertain;
   }
 }
+
+const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 export interface ClientOptions {
   site: string;
@@ -83,15 +91,24 @@ export class AtlassianClient {
     this.sleep = opts.sleep ?? defaultSleep;
   }
 
+  private isQueryPost(url: string): boolean {
+    return (this.opts.queryPosts ?? DEFAULT_QUERY_POSTS).some((r) => r.test(url.split('?')[0]!));
+  }
+
   /** Low-level request. Returns status and JSON without throwing on 4xx, so probes can inspect them. */
   async raw(method: string, url: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<RawResult> {
-    if (this.readOnly && method !== 'GET' && !(method === 'POST' && (this.opts.queryPosts ?? DEFAULT_QUERY_POSTS).some((r) => r.test(url.split('?')[0]!)))) {
+    if (this.readOnly && method !== 'GET' && !(method === 'POST' && this.isQueryPost(url))) {
       throw new Error(`read-only client refused ${method} ${url}`);
     }
     const max = this.opts.maxRetries ?? 4;
+    // 429 means the request was rejected unprocessed: always safe to retry. A 5xx or a lost response may come after
+    // the server applied the request, so only idempotent requests (and query-only POSTs) are retried then.
+    const safe = IDEMPOTENT.has(method) || (method === 'POST' && this.isQueryPost(url));
     for (let attempt = 0; ; attempt++) {
       this.requestCount++;
-      const res = await this.http(url, {
+      let res: HttpResponse;
+      try {
+        res = await this.http(url, {
         method,
         headers: {
           Accept: 'application/json',
@@ -100,8 +117,13 @@ export class AtlassianClient {
           ...extraHeaders,
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      if ((res.status === 429 || res.status >= 500) && attempt < max) {
+        });
+      } catch (e) {
+        if (safe && attempt < max) { await this.sleep(Math.min(20000, 500 * 2 ** attempt)); continue; }
+        const path = url.replace(/^https:\/\/[^/]+/, '');
+        throw new AtlassianError(`${method} ${path} → no response: ${(e as Error).message}`, 0, method, path, undefined, !safe);
+      }
+      if ((res.status === 429 || (res.status >= 500 && safe)) && attempt < max) {
         const ra = Number(res.headers.get('retry-after'));
         await this.sleep(Number.isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(20000, 500 * 2 ** attempt));
         continue;
@@ -121,7 +143,8 @@ export class AtlassianClient {
     const r = await this.raw(method, url, body, headers);
     if (r.status < 200 || r.status >= 300) {
       const path = url.replace(/^https:\/\/[^/]+/, '');
-      throw new AtlassianError(`${method} ${path} → ${r.status}: ${summariseError(r.json)}`, r.status, method, path, r.json);
+      const uncertain = r.status >= 500 && !IDEMPOTENT.has(method) && !(method === 'POST' && this.isQueryPost(url));
+      throw new AtlassianError(`${method} ${path} → ${r.status}: ${summariseError(r.json)}${uncertain ? ' (the write may have been applied)' : ''}`, r.status, method, path, r.json, uncertain);
     }
     return r.json as T;
   }

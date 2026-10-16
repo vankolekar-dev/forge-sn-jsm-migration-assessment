@@ -29,11 +29,32 @@ export function candidateNames(el: DesignElement): string[] {
  * keeps its name. A configured element with a new name (e.g. a "Hardware requests" queue modelled on the template's
  * "Service requests") is a new element, not the template's.
  */
+/** The template an element's reference artifact is part of: a space template or an Assets schema template. */
+export function templateOf(el: DesignElement): 'project-template' | 'assets-schema-template' | undefined {
+  const art = el.referenceId ? getReferenceArtifact(el.referenceId) : undefined;
+  if (!art?.partOf) return undefined;
+  const kind = getReferenceArtifact(art.partOf)?.kind;
+  return kind === 'project-template' || kind === 'assets-schema-template' ? kind : undefined;
+}
+
+/** Template attributes recorded on a reference object type ("attributes.attributes": [{ name, type }]). */
+const templateAttributes = (art: { attributes?: unknown }) =>
+  ((art.attributes as { attributes?: { name: string }[] } | undefined)?.attributes ?? []).map((a) => a.name);
+
+/**
+ * Made by a template when its container is created: a space template's work types, workflows, portal groups,
+ * queues and request types; an Assets schema template's object types and their attributes. Only while the design
+ * keeps the template's name.
+ */
 export function isTemplateProvided(el: DesignElement): boolean {
   const art = el.referenceId ? getReferenceArtifact(el.referenceId) : undefined;
-  if (!art || art.kind !== el.type || !art.partOf) return false;
-  return getReferenceArtifact(art.partOf)?.kind === 'project-template' && nameEq(specName(el), art.name);
+  if (!art?.partOf || !templateOf(el)) return false;
+  if (el.type === 'assets-attribute' && art.kind === 'assets-object-type') return templateAttributes(art).some((n) => nameEq(n, el.spec.name));
+  return art.kind === el.type && nameEq(specName(el), art.name);
 }
+
+/** An Assets schema that starts from a template: there is no public API to create one from a template. */
+export const isTemplateSchema = (el: DesignElement): boolean => el.type === 'assets-schema' && Boolean(el.spec.templateKey);
 
 /** Provided by the space template or by the platform (built-in and managed fields, default notifications). */
 export function isProvided(el: DesignElement): boolean {

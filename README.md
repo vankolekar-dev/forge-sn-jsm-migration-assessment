@@ -27,8 +27,14 @@ Evidence (ServiceNow) → Outcome (platform-neutral, signed off) → Design (Atl
 ## Reference library rules
 
 - Every artifact has `verification.status`. Seeded entries are **unverified** until captured from a real site.
-- Catalogue designs only contain `reference` / `reference-configured` elements. Customer `extension`s are added
-  per blueprint, with a justification that links to evidence or outcomes.
+- Capture overrides seed knowledge. When a capture contradicts a seeded fact, the old artifact is marked
+  **deprecated** (kept for history) and a verified one replaces it. The validator fails any design that still relies on
+  a deprecated artifact.
+- Designs start from the template and stay as close to it as they can (template names, statuses and attributes).
+  An `extension` is allowed only with a justification that cites an outcome and the alternatives considered.
+  Extensions should stay a small minority of a design.
+- The frozen seed in `packages/tools/test/fixtures/reference-seed/` keeps capture/compare tests stable when the live
+  library changes.
 - `npm run validate:reference` checks integrity: ids, dependencies, referenceIds, placeholders, outcome →
   design traceability. It also prints buildability per capability from the coverage matrix.
 
@@ -67,14 +73,24 @@ npm run analyse -- --instance <instance>.service-now.com --customer "Acme" --usa
 ```
 
 Writes `out/<customer>/snapshot.json`, `blueprint.json`, `assessment.json` and `assessment.md` (gitignored).
+The report's design section includes **Reference confidence**: every Atlassian reference fact the design relies on,
+verified (with date and notes) or still an assumption. It also has **Extensions and why**: each extension with its
+reason, the outcomes it serves and the alternatives considered.
 Outcome parameters are resolved from evidence (approval conditions, fulfilment groups, item-level SLAs and
 schedules). When there is no evidence, the catalogue default is used and marked **low confidence** for the workshop.
 
 ### Build the design (JSM instance only, no data migration)
 
-Each design element is either **adopted** (provided by the space template, bound after the space exists),
+Each design element is either **adopted** (provided by a template, bound after its container exists),
 **created** through the public API, or turned into a **guided step** (where to go, the exact values, how to check)
-when no API exists. The engine is additive and never deletes. Paths are relative to `SNJSM_WORKDIR` (default `out/`).
+when no API exists. The engine is additive and never deletes.
+
+- **Space templates.** Work types, the workflow, portal groups and template fields are bound once the space exists.
+  Workflows are matched by exact name: the space's own copy (`KEY: … workflow for Jira Service Management`) is
+  preferred, then an exact shared match. Look-alikes are never picked.
+- **Assets schema templates.** There is no public API to create a schema from a template (for example, IT asset
+  management). So that is a guided step: create it in the UI, then `confirm --id as.schema.itam --remote-id <schemaId>`.
+  The next run binds the template's object types and attributes by name and creates only the extensions. Paths are relative to `SNJSM_WORKDIR` (default `out/`).
 
 ```bash
 npm run jsm -- summary   --blueprint acme/blueprint.json
@@ -108,6 +124,10 @@ Changing the target records a decision. Any earlier sign-off then lapses, so the
 3. A dry-run with that plan hash was produced for that site.
 4. A person typed exactly `APPLY <planHash> TO <site>`.
 5. A fresh read-only dry-run still has the same hash.
+
+**Retries never duplicate writes.** Reads, PUT/DELETE and query POSTs are retried on 5xx or network errors. A create
+(POST) is retried only on 429. If a create gets a 5xx or no response, the engine looks the element up again: if it is
+there it is recorded, otherwise the step fails with "probably not created — run the dry-run again".
 
 Other protections: the state file is pinned to one blueprint and one site, locked while apply, confirm or verify
 is running, and written after every step. Credentials come from `ATL_EMAIL` / `ATL_API_TOKEN`, or from the Keychain

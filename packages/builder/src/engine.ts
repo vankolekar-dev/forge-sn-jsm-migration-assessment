@@ -1,10 +1,10 @@
 import { dependenciesOf, type Blueprint, type DesignElement } from '@snjsm/model';
 import { buildabilityOf } from '@snjsm/reference';
 import { handlerFor } from './handlers';
-import { isExistingSpace, isProvided, isTemplateProvided } from './handlers/util';
+import { isExistingSpace, isProvided, isTemplateProvided, templateOf } from './handlers/util';
 import { hashOf, stableStringify } from './hash';
 import {
-  BlockedError, type Action, type BuildOptions, type BuildState, type Change, type ElementState, type HandlerContext, type ManualStep,
+  BlockedError, type Action, type BuildOptions, type BuildState, type Change, type ElementState, type Handler, type HandlerContext, type ManualStep,
   type Plan, type PlanStep, type Remote, type SiteApi, type Strategy, type VerifyReport, type VerifyResult, type VerifyStatus,
 } from './types';
 
@@ -51,9 +51,12 @@ export function scopeElements(bp: Blueprint, scope: Scope = {}): DesignElement[]
 export { isProvided, isTemplateProvided };
 
 /** Declared dependencies plus implicit ones: template-provided elements exist only once their space exists. */
+/** Declared dependencies, plus the container a template-provided element comes from (its space or Assets schema). */
 export function depsOf(el: DesignElement, bp: Blueprint): string[] {
   const d = dependenciesOf(el);
-  return isTemplateProvided(el) ? [...new Set([...d, ...bp.design.filter((x) => x.type === 'space').map((x) => x.id)])] : d;
+  if (!isTemplateProvided(el)) return d;
+  const container = templateOf(el) === 'assets-schema-template' ? 'assets-schema' : 'space';
+  return [...new Set([...d, ...bp.design.filter((x) => x.type === container).map((x) => x.id)])];
 }
 
 /** Topological order (Kahn), stable by blueprint position. Throws on cycles. */
@@ -189,7 +192,7 @@ export async function plan(input: PlanInput): Promise<Plan> {
           decide('adopt', `exists on the site (${found.key ?? found.id})${s.changes?.length ? `; differs: ${s.changes.map((c) => c.path).join(', ')}` : ''}`);
         } else if (strategy === 'adopt') {
           const parentPending = deps.some((d) => byId.get(d) && byId.get(d)!.action !== 'noop' && byId.get(d)!.action !== 'adopt');
-          if (!live || parentPending) decide('adopt', isExistingSpace(el) ? `existing space ${el.spec.key}: bound on the dry-run` : 'provided by the template: bound after its space exists');
+          if (!live || parentPending) decide('adopt', isExistingSpace(el) ? `existing space ${el.spec.key}: bound on the dry-run` : `provided by the template: bound after its ${templateOf(el) === 'assets-schema-template' ? 'Assets schema' : 'space'} exists`);
           else if (h.canCreate(el)) { decide('create', 'expected from the template but not found: will create'); warnings.push(`${el.id}: expected from the template but not found`); }
           else { decide('manual', 'expected from the template but not found'); warnings.push(`${el.id}: expected from the template but not found`); }
         } else if (strategy === 'manual') decide('manual', coverage === 'unknown' ? 'API not verified: guided step' : 'no public API: guided step');
@@ -273,6 +276,23 @@ export interface ApplyInput {
 export interface ApplyStepResult { designId: string; action: Action; result: 'done' | 'manual' | 'blocked' | 'failed' | 'skipped'; remote?: Remote; detail?: string }
 export interface ApplyResult { planHash: string; results: ApplyStepResult[]; summary: Record<ApplyStepResult['result'], number>; manual: ManualStep[] }
 
+/**
+ * Create, never re-sent blindly: when the result is uncertain (5xx or no response after a non-idempotent write),
+ * look again with fresh reads. Found: the write went through, record it. Not found: fail, and the next dry-run
+ * decides again (create-if-absent).
+ */
+async function createOnce(h: Handler, ctx: HandlerContext, cache: Map<string, unknown>): Promise<Remote> {
+  try {
+    return await h.create!(ctx);
+  } catch (e) {
+    if (!(e as { uncertain?: boolean }).uncertain || !h.discover) throw e;
+    cache.clear();
+    const found = await h.discover(ctx).catch(() => undefined);
+    if (found) return found;
+    throw new Error(`${(e as Error).message}; not found afterwards, so it was probably not created. Run the dry-run again before retrying`);
+  }
+}
+
 export async function apply(input: ApplyInput): Promise<ApplyResult> {
   const { bp, state, api, scope = {}, options = {} } = input;
   if (api.readOnly) throw new Error('apply needs a write-enabled client');
@@ -322,7 +342,7 @@ export async function apply(input: ApplyInput): Promise<ApplyResult> {
       if (s.action === 'adopt') {
         remote = remote ?? (await h.discover?.(ctx));
         status = 'adopted';
-        if (!remote && h.canCreate(el) && h.create) { remote = await h.create(ctx); status = 'created'; }
+        if (!remote && h.canCreate(el) && h.create) { remote = await createOnce(h, ctx, cache); status = 'created'; }
         if (!remote) {
           const m = h.manual(ctx, []);
           manual.push(m); save(s.designId, { status: 'manual-pending' }); waiting.add(s.designId);
@@ -334,7 +354,7 @@ export async function apply(input: ApplyInput): Promise<ApplyResult> {
         // Create-if-absent: parents built earlier in this run may have brought it along (e.g. an object type's "Name").
         const existing = await h.discover?.(ctx);
         if (existing) { remote = existing; status = 'adopted'; }
-        else remote = await h.create(ctx);
+        else remote = await createOnce(h, ctx, cache);
       } else if (s.action === 'update') {
         status = 'updated';
       }

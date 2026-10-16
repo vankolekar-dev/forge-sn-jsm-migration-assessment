@@ -171,18 +171,26 @@ export const workflow: Handler<E<'workflow'>> = {
   canCreate: () => false,
   manualAspects: (el) => (el.spec.approvals.length ? ['approval steps'] : []),
   async discover(ctx) {
-    for (const n of [ctx.el.spec.name, ctx.el.name]) {
-      const r = await ctx.api.jira<{ values?: { id: string | { entityId?: string; name?: string }; name?: string }[] }>('GET', `/rest/api/3/workflows/search?queryString=${encodeURIComponent(n)}&maxResults=50`);
-      const hit = (r.values ?? []).find((w) => nameEq(w.name ?? (typeof w.id === 'object' ? w.id.name : undefined), n));
-      if (hit) return { kind: 'workflow', id: typeof hit.id === 'object' ? String(hit.id.entityId ?? hit.id.name) : String(hit.id), name: n };
-    }
-    // Template workflows are often renamed per space ("<KEY>: Service request fulfilment workflow ...").
+    type W = { id: string | { entityId?: string; name?: string }; name?: string };
+    const idOf = (w: W) => (typeof w.id === 'object' ? String(w.id.entityId ?? w.id.name) : String(w.id));
+    const nameOf = (w: W) => w.name ?? (typeof w.id === 'object' ? w.id.name : undefined) ?? '';
+    // Template workflows are renamed per space: "<KEY>: Service Request Fulfilment with Approvals workflow for Jira
+    // Service Management". Match exactly on the bare name, so "…Fulfilment" never binds to "…Fulfilment with Approvals".
+    const bare = (n: string) => n.replace(/^[A-Z][A-Z0-9]*:\s*/, '').replace(/\s+for jira service management$/i, '').replace(/(\s+workflow)+$/i, '');
+    const wanted = [ctx.el.spec.name, ctx.el.name].map(bare);
+    const matches = (w: W) => wanted.some((n) => nameEq(bare(nameOf(w)), n));
     const sp = spaceOfDesign(ctx);
     const key = sp ? ctx.remoteOf(sp.id)?.key : undefined;
+    // Prefer the space's own copy, then an unprefixed shared workflow with exactly the design name.
     if (key) {
-      const r = await ctx.api.jira<{ values?: { id: string | { entityId?: string }; name?: string }[] }>('GET', `/rest/api/3/workflows/search?queryString=${encodeURIComponent(key)}&maxResults=50`);
-      const hit = (r.values ?? []).find((w) => (w.name ?? '').toLowerCase().includes(ctx.el.spec.name.toLowerCase().replace(/ workflow$/, '')));
-      if (hit) return { kind: 'workflow', id: typeof hit.id === 'object' ? String(hit.id.entityId) : String(hit.id), name: hit.name };
+      const r = await ctx.api.jira<{ values?: W[] }>('GET', `/rest/api/3/workflows/search?queryString=${encodeURIComponent(`${key}:`)}&maxResults=200`);
+      const hit = (r.values ?? []).find((w) => nameOf(w).startsWith(`${key}:`) && matches(w));
+      if (hit) return { kind: 'workflow', id: idOf(hit), name: nameOf(hit) };
+    }
+    for (const n of [ctx.el.spec.name, ctx.el.name]) {
+      const r = await ctx.api.jira<{ values?: W[] }>('GET', `/rest/api/3/workflows/search?queryString=${encodeURIComponent(n)}&maxResults=50`);
+      const hit = (r.values ?? []).find((w) => !/^[A-Z][A-Z0-9]*:/.test(nameOf(w)) && matches(w));
+      if (hit) return { kind: 'workflow', id: idOf(hit), name: nameOf(hit) };
     }
     return undefined;
   },

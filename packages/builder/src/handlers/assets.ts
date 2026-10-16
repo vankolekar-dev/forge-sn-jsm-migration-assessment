@@ -1,6 +1,7 @@
 import type { DesignElement } from '@snjsm/model';
+import { getReferenceArtifact } from '@snjsm/reference';
 import type { Handler, HandlerContext, Remote } from '../types';
-import { cached, invalidate, label, matchByName, nameEq, orMissing, step } from './util';
+import { cached, invalidate, isTemplateSchema, label, matchByName, nameEq, orMissing, step } from './util';
 
 type E<T extends DesignElement['type']> = Extract<DesignElement, { type: T }>;
 
@@ -9,9 +10,14 @@ type E<T extends DesignElement['type']> = Extract<DesignElement, { type: T }>;
 type Schema = { id: string; name: string; objectSchemaKey: string; description?: string };
 const schemas = (ctx: HandlerContext) => cached(ctx, 'assets:schemas', async () => (await ctx.api.assets<{ values?: Schema[] }>('GET', '/objectschema/list?maxResults=100')).values ?? []);
 
+/**
+ * Assets schema. An empty schema is created through the API; a schema that starts from a template (IT asset
+ * management, …) is a guided step, because the API cannot create from a template and an empty schema would lack
+ * the template's object types.
+ */
 export const assetsSchema: Handler<E<'assets-schema'>> = {
   type: 'assets-schema',
-  canCreate: () => true,
+  canCreate: (el) => !isTemplateSchema(el),
   async discover(ctx) {
     const list = await schemas(ctx);
     const s = list.find((x) => x.objectSchemaKey === ctx.el.spec.key) ?? matchByName(ctx.el, list);
@@ -28,11 +34,23 @@ export const assetsSchema: Handler<E<'assets-schema'>> = {
     invalidate(ctx, 'assets:schemas');
     return { kind: 'assets-schema', id: String(s.id), key: s.objectSchemaKey, name: s.name };
   },
-  manual: (ctx) => step(ctx, {
-    title: `Assets schema "${ctx.el.spec.name}"`, why: 'Schema not found and could not be created', where: 'Assets → Object schemas → Create schema',
-    instructions: [`Create an empty schema "${ctx.el.spec.name}" with key ${ctx.el.spec.key}.`], values: { ...ctx.el.spec },
-    checks: ['The schema opens in Assets.'], record: 'remote-id',
-  }),
+  manual: (ctx) => {
+    const tpl = ctx.el.referenceId ? getReferenceArtifact(ctx.el.referenceId) : undefined;
+    return isTemplateSchema(ctx.el)
+      ? step(ctx, {
+        title: `Create Assets schema "${ctx.el.spec.name}" from the ${tpl?.name ?? ctx.el.spec.templateKey} template`,
+        why: 'The Assets API cannot create a schema from a template',
+        where: `Assets → Object schemas → Create schema → ${tpl?.name ?? ctx.el.spec.templateKey}`,
+        instructions: [`Choose the ${tpl?.name ?? ctx.el.spec.templateKey} template.`, `Name "${ctx.el.spec.name}", key ${ctx.el.spec.key}.`, 'Do not import sample data.', 'Record the schema id (the number in the schema URL) afterwards.'],
+        values: { name: ctx.el.spec.name, key: ctx.el.spec.key, template: tpl?.name ?? ctx.el.spec.templateKey!, ...(ctx.el.spec.description ? { description: ctx.el.spec.description } : {}) },
+        checks: ['The schema opens in Assets and shows the template object types.'], record: 'remote-id',
+      })
+      : step(ctx, {
+        title: `Assets schema "${ctx.el.spec.name}"`, why: 'Schema not found and could not be created', where: 'Assets → Object schemas → Create schema',
+        instructions: [`Create an empty schema "${ctx.el.spec.name}" with key ${ctx.el.spec.key}.`], values: { ...ctx.el.spec },
+        checks: ['The schema opens in Assets.'], record: 'remote-id',
+      });
+  },
 };
 
 // ── Status type ───────────────────────────────────────────────────────────

@@ -68,13 +68,17 @@ describe('build service', () => {
     for (const x of [off, on, unsigned]) expect(x.site.writes).toHaveLength(0);
   });
 
-  it('dry-run → apply → guided steps → confirm → verify, with state on disk', async () => {
+  it('dry-run → apply → guided steps → confirm → apply → verify, with state on disk', async () => {
     const { svc, blueprint, site, workdir } = setup();
+    const go = async () => {
+      const d = await svc.plan({ blueprint, dryRun: true });
+      return svc.apply({ blueprint, planHash: d.planHash, confirm: confirmPhrase(d.planHash, site.siteUrl) });
+    };
     const d = await svc.plan({ blueprint, dryRun: true });
     expect(site.writes).toHaveLength(0);
     expect(d.apply).toContain(confirmPhrase(d.planHash, site.siteUrl));
     const r = await svc.apply({ blueprint, planHash: d.planHash, confirm: confirmPhrase(d.planHash, site.siteUrl) });
-    expect(r.summary.done).toBeGreaterThan(10);
+    expect(r.summary.done).toBeGreaterThan(5);
     expect(r.failed).toEqual([]);
     expect(existsSync(join(workdir, r.state))).toBe(true);
     expect(existsSync(join(workdir, `${r.state}.lock`))).toBe(false);
@@ -83,14 +87,26 @@ describe('build service', () => {
     expect(st.exists).toBe(true);
     expect(st.elements.recorded).toBeGreaterThan(10);
 
+    // Guided step: create the Assets schema from its template in the UI, then record its id.
     const m = await svc.manualSteps({ blueprint });
     expect(m.count).toBeGreaterThan(0);
-    const ref = m.steps.find((s) => s.designId === 'ref.reports-to')!;
+    const schemaStep = m.steps.find((s) => s.designId === 'as.schema.itam')!;
+    expect(schemaStep.record).toBe('remote-id');
+    await expect(svc.confirmManual({ blueprint, designId: 'as.schema.itam' })).rejects.toThrow(/record the site id/);
+    const schema = site.createSchemaFromTemplate('atl.assets.template.itam', 'IT assets', 'ITAM');
+    expect((await svc.confirmManual({ blueprint, designId: 'as.schema.itam', remoteId: schema.id })).status).toBe('manual-done');
+
+    // The next run binds the template's object types and creates only the extensions.
+    const r2 = await go();
+    expect(r2.failed).toEqual([]);
+    expect(site.objectTypes.filter((t) => t.objectSchemaId === schema.id).map((t) => t.name)).toEqual(expect.arrayContaining(['Hardware Models', 'Person']));
+
+    const ref = (await svc.manualSteps({ blueprint })).steps.find((s) => s.designId === 'ref.reports-to')!;
     expect(ref.record).toBe('remote-id');
-    await expect(svc.confirmManual({ blueprint, designId: 'ref.reports-to' })).rejects.toThrow(/record the site id/);
+    const before = (await svc.manualSteps({ blueprint })).count;
     const c = await svc.confirmManual({ blueprint, designId: 'ref.reports-to', remoteId: '77' });
     expect(c.status).toBe('manual-done');
-    expect((await svc.manualSteps({ blueprint })).count).toBe(m.count - 1);
+    expect((await svc.manualSteps({ blueprint })).count).toBe(before - 1);
 
     // The attribute waiting on the reference type is now plannable.
     const d2 = await svc.plan({ blueprint, dryRun: true, elementIds: ['as.attr.person-manager'] });

@@ -1,26 +1,196 @@
 [
-  { "id": "as.schema.itam", "type": "assets-schema", "name": "IT assets", "origin": "reference-configured", "referenceId": "atl.assets.template.itam",
-    "spec": { "name": "IT assets", "key": "ITAM", "templateKey": "itam", "description": "Hardware catalogue, locations and people used by IT service requests.", "purpose": "Owned by IT asset management" } },
-  { "id": "ref.reports-to", "type": "assets-reference-type", "name": "Reports to", "origin": "reference-configured", "referenceId": "atl.assets.template.itam", "spec": { "name": "Reports to", "schemaId": "as.schema.itam" } },
-  { "id": "ref.located-at", "type": "assets-reference-type", "name": "Located at", "origin": "reference-configured", "referenceId": "atl.assets.template.itam", "spec": { "name": "Located at", "schemaId": "as.schema.itam" } },
-
-  { "id": "as.ot.hardware-model", "type": "assets-object-type", "name": "Hardware model", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model",
-    "spec": { "name": "Hardware model", "schemaId": "as.schema.itam", "description": "Approved hardware models employees can request." } },
-  { "id": "as.ot.location", "type": "assets-object-type", "name": "Location", "origin": "reference", "referenceId": "atl.assets.itam.object-type.location", "spec": { "name": "Location", "schemaId": "as.schema.itam" } },
-  { "id": "as.ot.person", "type": "assets-object-type", "name": "Person", "origin": "reference", "referenceId": "atl.assets.itam.object-type.person", "spec": { "name": "Person", "schemaId": "as.schema.itam" } },
-
-  { "id": "as.attr.model-name", "type": "assets-attribute", "name": "Name", "origin": "reference", "referenceId": "atl.assets.itam.object-type.model", "spec": { "name": "Name", "objectTypeId": "as.ot.hardware-model", "attributeType": "text", "label": true, "minCardinality": 1 } },
-  { "id": "as.attr.model-category", "type": "assets-attribute", "name": "Category", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model", "spec": { "name": "Category", "objectTypeId": "as.ot.hardware-model", "attributeType": "select", "options": ["Laptop", "Desktop", "Monitor", "Mobile phone", "Tablet", "Accessory"] } },
-  { "id": "as.attr.model-unit-cost", "type": "assets-attribute", "name": "Unit cost", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model", "spec": { "name": "Unit cost", "objectTypeId": "as.ot.hardware-model", "attributeType": "float" } },
-  { "id": "as.attr.model-standard", "type": "assets-attribute", "name": "Standard", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model", "spec": { "name": "Standard", "objectTypeId": "as.ot.hardware-model", "attributeType": "boolean", "description": "Standard models can be auto-approved under the cost threshold." } },
-  { "id": "as.attr.model-approved", "type": "assets-attribute", "name": "Approved", "origin": "reference-configured", "referenceId": "atl.assets.itam.object-type.model", "spec": { "name": "Approved", "objectTypeId": "as.ot.hardware-model", "attributeType": "boolean", "description": "Only approved models appear on the request form." } },
-
-  { "id": "as.attr.location-name", "type": "assets-attribute", "name": "Name", "origin": "reference", "referenceId": "atl.assets.itam.object-type.location", "spec": { "name": "Name", "objectTypeId": "as.ot.location", "attributeType": "text", "label": true, "minCardinality": 1 } },
-
-  { "id": "as.attr.person-name", "type": "assets-attribute", "name": "Name", "origin": "reference", "referenceId": "atl.assets.itam.object-type.person", "spec": { "name": "Name", "objectTypeId": "as.ot.person", "attributeType": "text", "label": true, "minCardinality": 1 } },
-  { "id": "as.attr.person-user", "type": "assets-attribute", "name": "User", "origin": "reference", "referenceId": "atl.assets.itam.object-type.person", "spec": { "name": "User", "objectTypeId": "as.ot.person", "attributeType": "user", "unique": true } },
-  { "id": "as.attr.person-manager", "type": "assets-attribute", "name": "Manager", "origin": "reference", "referenceId": "atl.assets.itam.object-type.person",
-    "spec": { "name": "Manager", "objectTypeId": "as.ot.person", "attributeType": "reference", "reference": { "targetObjectTypeId": "as.ot.person", "referenceTypeId": "ref.reports-to" } } },
-  { "id": "as.attr.person-location", "type": "assets-attribute", "name": "Location", "origin": "reference", "referenceId": "atl.assets.itam.object-type.person",
-    "spec": { "name": "Location", "objectTypeId": "as.ot.person", "attributeType": "reference", "reference": { "targetObjectTypeId": "as.ot.location", "referenceTypeId": "ref.located-at" } } }
+  {
+    "id": "as.schema.itam",
+    "type": "assets-schema",
+    "name": "IT assets",
+    "origin": "reference-configured",
+    "referenceId": "atl.assets.template.itam",
+    "spec": {
+      "name": "IT assets",
+      "key": "ITAM",
+      "templateKey": "itam",
+      "description": "Created from the IT asset management template. Hardware Models is the request catalogue; Person is added so approvals can go to the requester's manager.",
+      "purpose": "Owned by IT asset management"
+    }
+  },
+  {
+    "id": "ref.reports-to",
+    "type": "assets-reference-type",
+    "name": "Reports to",
+    "origin": "extension",
+    "spec": {
+      "name": "Reports to",
+      "schemaId": "as.schema.itam"
+    },
+    "justification": {
+      "reason": "Part of the Person extension: Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": []
+    }
+  },
+  {
+    "id": "as.ot.hardware-model",
+    "type": "assets-object-type",
+    "name": "Hardware Models",
+    "origin": "reference",
+    "referenceId": "atl.assets.itam.object-type.hardware-models",
+    "spec": {
+      "name": "Hardware Models",
+      "schemaId": "as.schema.itam",
+      "description": "Template catalogue of hardware models; employees request one of these."
+    }
+  },
+  {
+    "id": "as.ot.person",
+    "type": "assets-object-type",
+    "name": "Person",
+    "origin": "extension",
+    "spec": {
+      "name": "Person",
+      "schemaId": "as.schema.itam",
+      "description": "Employees and their managers, so approvals can go to the requester's manager. Extension: not in the IT asset management template."
+    },
+    "justification": {
+      "reason": "Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": [
+        "An approver group per department: loses \"the requester's own manager\"",
+        "An HR-system integration feeding Approvers directly: possible later, needs an integration",
+        "Asking the requester to name the approver: weak control"
+      ]
+    }
+  },
+  {
+    "id": "as.attr.model-name",
+    "type": "assets-attribute",
+    "name": "Name",
+    "origin": "reference",
+    "referenceId": "atl.assets.itam.object-type.hardware-models",
+    "spec": {
+      "name": "Name",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributeType": "text",
+      "label": true,
+      "minCardinality": 1
+    }
+  },
+  {
+    "id": "as.attr.model-unit-cost",
+    "type": "assets-attribute",
+    "name": "Unit Price",
+    "origin": "reference",
+    "referenceId": "atl.assets.itam.object-type.hardware-models",
+    "spec": {
+      "name": "Unit Price",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributeType": "integer",
+      "description": "Template attribute (whole currency units); compared with the cost threshold."
+    }
+  },
+  {
+    "id": "as.attr.model-status",
+    "type": "assets-attribute",
+    "name": "Status",
+    "origin": "reference",
+    "referenceId": "atl.assets.itam.object-type.hardware-models",
+    "spec": {
+      "name": "Status",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributeType": "status",
+      "description": "Template status. Models that are Inactive or Disposed are hidden from the request form (replaces a separate \"Approved\" flag)."
+    },
+    "deliversOutcomeIds": [
+      "itsm.request-hardware.o.intake"
+    ]
+  },
+  {
+    "id": "as.attr.model-standard",
+    "type": "assets-attribute",
+    "name": "Standard",
+    "origin": "extension",
+    "spec": {
+      "name": "Standard",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributeType": "boolean",
+      "description": "Standard models can be auto-approved under the cost threshold."
+    },
+    "justification": {
+      "reason": "The approval rule distinguishes standard from non-standard models; the template has no attribute for that.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": [
+        "A cost threshold alone: loses the rule that non-standard models always need approval",
+        "A Model Category per standard set: the template uses categories for model families, not policy"
+      ]
+    },
+    "deliversOutcomeIds": [
+      "itsm.request-hardware.o.approval"
+    ]
+  },
+  {
+    "id": "as.attr.person-name",
+    "type": "assets-attribute",
+    "name": "Name",
+    "origin": "extension",
+    "spec": {
+      "name": "Name",
+      "objectTypeId": "as.ot.person",
+      "attributeType": "text",
+      "label": true,
+      "minCardinality": 1
+    },
+    "justification": {
+      "reason": "Part of the Person extension: Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": []
+    }
+  },
+  {
+    "id": "as.attr.person-user",
+    "type": "assets-attribute",
+    "name": "User",
+    "origin": "extension",
+    "spec": {
+      "name": "User",
+      "objectTypeId": "as.ot.person",
+      "attributeType": "user",
+      "unique": true
+    },
+    "justification": {
+      "reason": "Part of the Person extension: Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": []
+    }
+  },
+  {
+    "id": "as.attr.person-manager",
+    "type": "assets-attribute",
+    "name": "Manager",
+    "origin": "extension",
+    "spec": {
+      "name": "Manager",
+      "objectTypeId": "as.ot.person",
+      "attributeType": "reference",
+      "reference": {
+        "targetObjectTypeId": "as.ot.person",
+        "referenceTypeId": "ref.reports-to"
+      }
+    },
+    "justification": {
+      "reason": "Part of the Person extension: Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",
+      "outcomeIds": [
+        "itsm.request-hardware.o.approval"
+      ],
+      "alternativesConsidered": []
+    }
+  }
 ]

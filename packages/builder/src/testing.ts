@@ -43,6 +43,12 @@ export class FakeSite {
   constructor(readonly siteUrl = 'https://fake-sandbox.atlassian.net', readonly opts: { systemPrefix?: boolean } = {}) {}
   private id = () => String(++this.seq);
 
+  /**
+   * One-shot faults: the next matching request fails with 503 (an uncertain write for POST), either after the
+   * site applied it (applied: true, like a lost response) or before.
+   */
+  faults: { method: string; path: RegExp; applied: boolean }[] = [];
+
   /** A client view. Read-only views reject writes, like AtlassianClient. */
   client(readOnly: boolean): SiteApi {
     const go = (api: 'jira' | 'jsm' | 'assets' | 'call') => async (method: string, path: string, body?: unknown) => {
@@ -50,6 +56,12 @@ export class FakeSite {
       const isQueryPost = m === 'POST' && /\/rule\/summary$/.test(path);
       if (readOnly && m !== 'GET' && !isQueryPost) throw new Error(`read-only client refused ${m} ${path}`);
       if (m !== 'GET' && !isQueryPost) this.writes.push({ method: m, path, body });
+      const f = this.faults.findIndex((x) => x.method === m && x.path.test(path));
+      if (f >= 0) {
+        const [fault] = this.faults.splice(f, 1);
+        if (fault!.applied) await this.route(api, m, path, body as Obj);
+        throw Object.assign(new Error(`${m} ${path} → 503 (injected; ${fault!.applied ? 'applied' : 'not applied'})`), { status: 503, uncertain: m === 'POST' });
+      }
       return this.route(api, m, path, body as Obj);
     };
     return { siteUrl: this.siteUrl, readOnly, jira: go('jira'), jsm: go('jsm'), assets: go('assets'), call: go('call'), cloudId: async () => 'fake-cloud' } as SiteApi;
@@ -70,6 +82,37 @@ export class FakeSite {
     }
     for (const a of parts.filter((x) => x.kind === 'request-type')) this.requestTypes.push({ id: this.id(), name: a.name, description: '', issueTypeId: types[0], sd: sd.id });
     this.projectIssueTypes.set(project.id, types);
+  }
+
+  /**
+   * Simulate the guided step "create an Assets schema from a template" (the UI does this; there is no public API).
+   * Seeds the template's verified object types (with parents) and their own attributes from the reference library,
+   * plus the system attributes every object type has. Inherited attributes are not repeated on children.
+   * Returns the new schema, whose id a person records when confirming the guided step.
+   */
+  createSchemaFromTemplate(templateId: string, name: string, key: string): Obj {
+    const template = referenceArtifacts().find((a) => a.id === templateId && a.kind === 'assets-schema-template');
+    if (!template) throw new Error(`unknown Assets schema template ${templateId}`);
+    const s = { id: this.id(), name, objectSchemaKey: key };
+    this.schemas.push(s);
+    const types = referenceArtifacts().filter((a) => a.partOf === templateId && a.kind === 'assets-object-type' && a.verification.status !== 'deprecated');
+    const byName = new Map<string, Obj>();
+    const typeCode: Record<string, number> = { reference: 1, user: 2, group: 4, status: 7 };
+    // Parents first, so children can point at them.
+    const pending = [...types];
+    while (pending.length) {
+      const i = pending.findIndex((a) => { const p = (a.attributes as Obj | undefined)?.['parent']; return !p || byName.has(p); });
+      const [a] = pending.splice(i < 0 ? 0 : i, 1);
+      const attrs = (a!.attributes ?? {}) as Obj;
+      const t = { id: this.id(), name: a!.name, objectSchemaId: s.id, parentObjectTypeId: attrs['parent'] ? byName.get(attrs['parent'])?.id : undefined, abstractObjectType: !!attrs['abstract'] };
+      this.objectTypes.push(t);
+      byName.set(a!.name, t);
+      const own = ((attrs['attributes'] ?? []) as Obj[]).filter((x) => !x['inherited']);
+      const names = new Set(own.map((x) => String(x['name'])));
+      for (const n of ['Key', 'Name', 'Created', 'Updated']) if (!names.has(n)) this.attributes.push({ id: this.id(), name: n, objectTypeId: t.id, type: 0 });
+      for (const x of own) this.attributes.push({ id: this.id(), name: x['name'], objectTypeId: t.id, type: typeCode[String(x['type'])] ?? 0 });
+    }
+    return s;
   }
 
   private route(api: string, m: string, full: string, body: Obj): unknown {

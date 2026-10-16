@@ -104,6 +104,9 @@ export function validateLibrary(): Issue[] {
     const params = new Set(cap.outcomes.flatMap((o) => o.parameters.map((p) => p.name)));
     for (const el of cap.design.elements) {
       if (el.referenceId && !artifacts.has(el.referenceId)) issues.push({ severity: 'error', path: `${cap.id}.design.${el.id}`, message: `referenceId ${el.referenceId} is not in the reference library` });
+      // A design must not rest on a reference artifact that a site capture contradicted.
+      const ref = el.referenceId ? artifacts.get(el.referenceId) : undefined;
+      if (ref?.verification.status === 'deprecated') issues.push({ severity: 'error', path: `${cap.id}.design.${el.id}`, message: `relies on deprecated reference ${ref.id}: ${ref.verification.notes ?? ''}` });
       for (const m of JSON.stringify(el.spec).matchAll(PLACEHOLDER)) {
         const name = m[1]!;
         // {{reporter.*}} / {{lookupObjects.*}} smart values are not matched by \w+ and are left to automation.

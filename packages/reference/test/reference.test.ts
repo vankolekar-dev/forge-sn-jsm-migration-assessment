@@ -20,13 +20,28 @@ describe('reference library', () => {
     expect(cap!.outcomes.map((o) => o.category)).toEqual(expect.arrayContaining(['intake', 'approval', 'routing', 'service-level', 'communication']));
   });
 
-  it('catalogue designs contain no extensions and resolve every referenceId', () => {
+  it('catalogue designs resolve every referenceId to a non-deprecated artifact; extensions are justified by an outcome', () => {
     for (const cap of listCapabilities()) {
+      const outcomeIds = new Set(cap.outcomes.map((o) => o.id));
       for (const el of cap.design.elements) {
-        expect(el.origin).not.toBe('extension');
-        expect(getReferenceArtifact(el.referenceId!)).toBeDefined();
+        if (el.origin === 'extension') {
+          expect(el.justification, `${el.id} needs a justification`).toBeDefined();
+          expect(el.justification!.outcomeIds.length, `${el.id} must cite an outcome`).toBeGreaterThan(0);
+          el.justification!.outcomeIds.forEach((o) => expect(outcomeIds.has(o)).toBe(true));
+          if (el.referenceId) expect(getReferenceArtifact(el.referenceId)).toBeDefined();
+          continue;
+        }
+        const ref = getReferenceArtifact(el.referenceId!);
+        expect(ref, `${el.id} → ${el.referenceId}`).toBeDefined();
+        expect(ref!.verification.status, `${el.id} relies on a deprecated reference`).not.toBe('deprecated');
       }
     }
+  });
+
+  it('keeps extensions a minority of the request-hardware design', () => {
+    const els = getCapability('itsm.request-hardware')!.design.elements;
+    const ext = els.filter((e) => e.origin === 'extension').length;
+    expect(ext).toBeLessThan(els.length / 3);
   });
 
   it('every outcome has acceptance criteria and is delivered by the design', () => {

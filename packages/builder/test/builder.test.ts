@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { snapshotFromXml } from '@snjsm/collector';
 import { analyse } from '@snjsm/analyser';
 import type { Blueprint } from '@snjsm/model';
+import { getReferenceArtifact } from '@snjsm/reference';
 import {
   FakeSite, apply, confirmManual, hashOf, newState, plan, readState, renderApply, renderPlan, renderVerify, scopeElements,
   stableStringify, strategyOf, verify, withLock, workBreakdown, writeState,
@@ -42,12 +43,18 @@ describe('hash and state', () => {
 describe('strategy and offline plan', () => {
   it('adopts template elements, creates API-buildable ones, guides the rest', () => {
     const el = (id: string) => base.design.find((d) => d.id === id)!;
-    expect(strategyOf(el('rt.request-new-hardware')).strategy).toBe('adopt');
+    // "Request hardware" is a configured request type (the template's has no approvals), so it is created.
+    expect(strategyOf(el('rt.request-new-hardware')).strategy).toBe('create+manual');
     expect(strategyOf(el('wf.service-request-approvals'))).toMatchObject({ strategy: 'adopt', aspects: ['approval steps'] });
     expect(strategyOf(el('fld.approvers')).strategy).toBe('adopt');
     expect(strategyOf(el('sp.it-service-desk')).strategy).toBe('create');
     expect(strategyOf(el('fld.hardware-model')).strategy).toBe('create+manual');
-    expect(strategyOf(el('as.schema.itam')).strategy).toBe('create');
+    // Schemas from a template are created in the UI (no public API), then bound by id.
+    expect(strategyOf(el('as.schema.itam')).strategy).toBe('manual');
+    expect(strategyOf(el('as.ot.hardware-model')).strategy).toBe('adopt');
+    expect(strategyOf(el('as.attr.model-unit-cost')).strategy).toBe('adopt');
+    expect(strategyOf(el('as.ot.person')).strategy).toBe('create');
+    expect(strategyOf(el('as.attr.model-standard')).strategy).toBe('create');
     expect(strategyOf(el('sla.first-response')).strategy).toBe('manual');
     expect(strategyOf(el('auto.auto-approve-standard')).strategy).toBe('manual');
   });
@@ -55,12 +62,18 @@ describe('strategy and offline plan', () => {
     const p = await plan({ bp: base });
     expect(p.mode).toBe('offline');
     const order = p.steps.map((s) => s.designId);
+    const step = (id: string) => p.steps.find((s) => s.designId === id);
     expect(order.indexOf('sp.it-service-desk')).toBeLessThan(order.indexOf('rt.request-new-hardware'));
     expect(order.indexOf('as.ot.person')).toBeLessThan(order.indexOf('as.attr.person-manager'));
-    expect(p.steps.find((s) => s.designId === 'sp.it-service-desk')?.requests?.[0]).toMatchObject({ method: 'POST', path: '/rest/api/3/project' });
-    // Attributes that reference a guided reference type wait for its id.
-    expect(p.steps.find((s) => s.designId === 'as.attr.person-manager')).toMatchObject({ action: 'blocked', blockedBy: ['ref.reports-to'] });
-    expect(p.steps.find((s) => s.designId === 'sla.first-response')?.manual?.instructions.join(' ')).toMatch(/business hours|hours|days/);
+    expect(step('sp.it-service-desk')?.requests?.[0]).toMatchObject({ method: 'POST', path: '/rest/api/3/project' });
+    // Everything in Assets waits for the guided "create the schema from the template" step.
+    expect(step('as.schema.itam')?.action).toBe('manual');
+    expect(step('as.schema.itam')?.manual?.instructions.join(' ')).toMatch(/template/i);
+    expect(step('as.ot.hardware-model')).toMatchObject({ action: 'blocked', blockedBy: ['as.schema.itam'] });
+    expect(step('as.ot.person')).toMatchObject({ action: 'blocked', blockedBy: ['as.schema.itam'] });
+    // Attributes that reference a guided reference type wait for its id too.
+    expect(step('as.attr.person-manager')?.blockedBy).toEqual(expect.arrayContaining(['ref.reports-to']));
+    expect(step('sla.first-response')?.manual?.instructions.join(' ')).toMatch(/business hours|hours|days/);
     expect(renderPlan(p)).toContain('## Guided steps');
   });
   it('scopes to a capability with its dependencies', () => {
@@ -86,6 +99,16 @@ describe('safety gates', () => {
   });
 });
 
+/** The guided step a person does in the UI: create the ITAM schema from its template, then confirm it with the id. */
+function createTemplateSchema(site: FakeSite, bp: Blueprint, state: ReturnType<typeof newState>) {
+  const el = bp.design.find((d) => d.id === 'as.schema.itam') as Extract<Blueprint['design'][number], { type: 'assets-schema' }>;
+  const ref = bp.design.find((d) => d.id === 'as.ot.hardware-model')!.referenceId!;
+  const template = getReferenceArtifact(ref)!.partOf!;
+  const schema = site.createSchemaFromTemplate(template, el.spec.name, el.spec.key!);
+  confirmManual(bp, state, { designId: el.id, by: 'vish', remoteId: schema.id, remoteKey: schema.objectSchemaKey });
+  return schema;
+}
+
 describe('apply on a fake sandbox', () => {
   it('builds, adopts template elements, records state, never deletes', async () => {
     const site = new FakeSite();
@@ -95,19 +118,20 @@ describe('apply on a fake sandbox', () => {
     expect(site.writes.some((w) => w.method === 'DELETE')).toBe(false);
     const st = (id: string) => state.elements[id];
     expect(st('sp.it-service-desk')).toMatchObject({ status: 'created', remote: { kind: 'project', key: expect.any(String), extra: { serviceDeskId: expect.any(String) } } });
-    // Provided by the ITSM template, so adopted, not created; its form still needs a guided step.
-    expect(st('rt.request-new-hardware')).toMatchObject({ status: 'adopted', manualPending: expect.arrayContaining(['request form (fields, labels, form)']) });
-    expect(site.writes.filter((w) => w.path.endsWith('/requesttype') && w.method === 'POST')).toHaveLength(0);
+    // A configured request type: created by API; its form and portal group still need guided steps.
+    expect(st('rt.request-new-hardware')).toMatchObject({ status: 'created', manualPending: expect.arrayContaining(['request form (fields, labels, form)']) });
+    expect(site.writes.filter((w) => w.path.endsWith('/requesttype') && w.method === 'POST')).toHaveLength(1);
     expect(st('fld.approvers')).toMatchObject({ status: 'adopted', remote: { id: 'customfield_10003' } });
-    expect(st('as.schema.itam')?.status).toBe('created');
-    expect(st('as.attr.person-name')?.status).toBe('adopted'); // "Name" is created with every object type
     expect(st('sla.first-response')?.status).toBe('manual-pending');
     expect(st('pg.computers')?.status).toBe('adopted');
     expect(st('wf.service-request-approvals')).toMatchObject({ status: 'adopted', manualPending: ['approval steps'] });
     expect(st('wt.service-request-approvals')).toMatchObject({ status: 'adopted', manualPending: [] });
     // "Hardware requests" is a new queue modelled on the template's, not the template's "Service requests" queue.
     expect(st('q.hardware-requests')?.status).toBe('manual-pending');
-    expect(res.results.find((r) => r.designId === 'as.attr.person-manager')?.result).toBe('blocked');
+    // Assets waits for the guided template-schema step; nothing is created by API in Assets yet.
+    expect(st('as.schema.itam')?.status).toBe('manual-pending');
+    expect(site.writes.some((w) => w.path.startsWith('/objectschema/create'))).toBe(false);
+    expect(res.results.find((r) => r.designId === 'as.ot.hardware-model')?.result).toBe('blocked');
     expect(res.manual.length).toBeGreaterThan(5);
     expect(renderApply(res)).toContain('Guided steps to do now');
   });
@@ -123,14 +147,40 @@ describe('apply on a fake sandbox', () => {
     expect(site.writes.length).toBe(writes);
   });
 
+  it('after the template schema is confirmed, adopts template object types and attributes and creates only the extensions', async () => {
+    const site = new FakeSite();
+    const bp = signed(base);
+    const { state } = await build(site, bp);
+    createTemplateSchema(site, bp, state);
+    const typesBefore = site.objectTypes.length;
+    const { res } = await build(site, bp, state);
+    expect(res.summary.failed).toBe(0);
+    const st = (id: string) => state.elements[id];
+    expect(st('as.schema.itam')).toMatchObject({ status: 'manual-done', remote: { kind: 'assets-schema' } });
+    // Template-provided: bound to what the template created, never re-created.
+    for (const id of ['as.ot.hardware-model', 'as.attr.model-name', 'as.attr.model-unit-cost', 'as.attr.model-status']) expect(st(id)?.status, id).toBe('adopted');
+    expect(st('as.ot.hardware-model')?.remote?.id).toBe(site.objectTypes.find((t) => t.name === 'Hardware Models')!.id);
+    // Justified extensions: created by API.
+    expect(st('as.ot.person')?.status).toBe('created');
+    expect(st('as.attr.model-standard')?.status).toBe('created');
+    expect(st('as.attr.person-user')?.status).toBe('created');
+    expect(st('as.attr.person-name')?.status).toBe('adopted'); // "Name" comes with every object type
+    expect(site.objectTypes.length).toBe(typesBefore + 1); // only Person
+    expect(site.writes.filter((w) => /objecttypeattribute/.test(w.path) && (w.body as { name?: string })?.name === 'Unit Price')).toHaveLength(0);
+    // The fields that point at the schema can now be built; the reference-type attribute still waits.
+    expect(st('fld.hardware-model')?.status).toBe('created');
+    expect(res.results.find((r) => r.designId === 'as.attr.person-manager')?.result).toBe('blocked');
+  });
+
   it('unblocks dependents once a person confirms the guided step with the site id', async () => {
     const site = new FakeSite();
     const bp = signed(base);
     const { state } = await build(site, bp);
+    expect(() => confirmManual(bp, state, { designId: 'as.schema.itam', by: 'vish' })).toThrow(/record the site id/);
+    createTemplateSchema(site, bp, state);
     expect(() => confirmManual(bp, state, { designId: 'ref.reports-to', by: 'vish' })).toThrow(/record the site id/);
-    site.referenceTypes.push({ id: '77', name: 'Reports to' }, { id: '78', name: 'Located at' });
+    site.referenceTypes.push({ id: '77', name: 'Reports to' });
     confirmManual(bp, state, { designId: 'ref.reports-to', by: 'vish', remoteId: '77' });
-    confirmManual(bp, state, { designId: 'ref.located-at', by: 'vish', remoteId: '78' });
     const next = await plan({ bp, state, api: site.client(true) });
     expect(next.steps.find((s) => s.designId === 'as.attr.person-manager')?.action).toBe('create');
     const r = await apply({ bp, state, api: site.client(false), readApi: site.client(true), approvedPlanHash: next.planHash });
@@ -156,15 +206,17 @@ describe('apply on a fake sandbox', () => {
     const site = new FakeSite();
     const bp = signed(base);
     const { state } = await build(site, bp);
+    createTemplateSchema(site, bp, state);
+    await build(site, bp, state);
     const v1 = await verify(bp, state, site.client(true));
     expect(v1.summary.ok).toBeGreaterThan(5);
     expect(v1.summary.pending).toBeGreaterThan(0);
-    const schema = site.schemas[0]!;
-    schema.name = 'Renamed by someone';
-    site.objectTypes.splice(site.objectTypes.findIndex((t) => t.name === 'Location'), 1);
+    expect(v1.results.find((r) => r.designId === 'as.ot.hardware-model')?.status).toBe('ok');
+    site.schemas[0]!.name = 'Renamed by someone';
+    site.objectTypes.splice(site.objectTypes.findIndex((t) => t.name === 'Person'), 1);
     const v2 = await verify(bp, state, site.client(true));
     expect(v2.results.find((r) => r.designId === 'as.schema.itam')?.status).toBe('drift');
-    expect(v2.results.find((r) => r.designId === 'as.ot.location')?.status).toBe('missing');
+    expect(v2.results.find((r) => r.designId === 'as.ot.person')?.status).toBe('missing');
     expect(renderVerify(v2)).toContain('drift');
   });
 });
@@ -254,5 +306,83 @@ describe('target space', () => {
     b.projects.push({ id: '1', key: 'ISD', name: 'x', projectTypeKey: 'service_desk' });
     const [pa, pb] = [await plan({ bp: base, api: a.client(true) }), await plan({ bp: base, api: b.client(true) })];
     expect(pa.planHash).not.toBe(pb.planHash);
+  });
+});
+
+describe('uncertain writes', () => {
+  // The first field the build creates through the API.
+  const fieldEl = async () => {
+    const p = await plan({ bp: base });
+    const id = p.steps.find((s) => s.type === 'field' && s.action === 'create')!.designId;
+    return base.design.find((d) => d.id === id)! as Extract<Blueprint['design'][number], { type: 'field' }>;
+  };
+
+  it('records the item when the create was applied but the response was lost, without re-sending it', async () => {
+    const site = new FakeSite();
+    site.faults.push({ method: 'POST', path: /^\/rest\/api\/3\/field$/, applied: true });
+    const { res, state } = await build(site, signed(base));
+    expect(site.faults).toHaveLength(0);
+    const el = await fieldEl();
+    expect(state.elements[el.id]).toMatchObject({ status: 'created' });
+    expect(res.results.find((r) => r.designId === el.id)!.result).not.toBe('failed');
+    expect(site.writes.filter((w) => w.method === 'POST' && w.path === '/rest/api/3/field' && (w.body as { name: string }).name === el.spec.name)).toHaveLength(1);
+  });
+
+  it('fails clearly when it was not applied, and the next run creates it once', async () => {
+    const site = new FakeSite();
+    site.faults.push({ method: 'POST', path: /^\/rest\/api\/3\/field$/, applied: false });
+    const first = await build(site, signed(base));
+    const failed = first.res.results.filter((r) => r.result === 'failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.detail).toMatch(/probably not created/);
+    const id = failed[0]!.designId;
+    const again = await plan({ bp: signed(base), state: first.state, api: site.client(true) });
+    const res2 = await apply({ bp: signed(base), state: first.state, api: site.client(false), readApi: site.client(true), approvedPlanHash: again.planHash, by: 'test' });
+    expect(res2.summary.failed).toBe(0);
+    expect(first.state.elements[id]!.status).toBe('created');
+  });
+});
+
+describe('template awareness', () => {
+  const el = (id: string) => base.design.find((d) => d.id === id)!;
+  it('knows which Assets elements an Assets schema template provides', async () => {
+    const { isTemplateProvided, isTemplateSchema, templateOf } = await import('@snjsm/builder');
+    expect(isTemplateSchema(el('as.schema.itam'))).toBe(true);
+    expect(templateOf(el('as.ot.hardware-model'))).toBe('assets-schema-template');
+    expect(isTemplateProvided(el('as.ot.hardware-model'))).toBe(true);
+    // Listed on the template's Hardware Models object type → provided.
+    expect(isTemplateProvided(el('as.attr.model-unit-cost'))).toBe(true);
+    expect(isTemplateProvided(el('as.attr.model-status'))).toBe(true);
+    // Extensions are never template-provided.
+    expect(isTemplateProvided(el('as.attr.model-standard'))).toBe(false);
+    expect(isTemplateProvided(el('as.ot.person'))).toBe(false);
+    expect(templateOf(el('rt.request-new-hardware'))).toBe('project-template');
+  });
+
+  it('binds the workflow by exact name, preferring the space copy over shared and look-alike workflows', async () => {
+    const seed = new FakeSite(undefined, { systemPrefix: true });
+    const templateKey = (el('sp.it-service-desk').spec as { templateKey: string }).templateKey;
+    await seed.client(false).jira('POST', '/rest/api/3/project', { key: 'ITS', name: 'IT Support', projectTypeKey: 'service_desk', projectTemplateKey: templateKey, leadAccountId: 'x' });
+    const template = seed.workflows.find((w) => /fulfilment with approvals/i.test(w.name))!;
+    const plain = (template.name as string).replace(/\s+workflow$/i, '');
+    // Look-alikes listed first, so a "contains" match would pick the wrong one.
+    seed.workflows.unshift(
+      { id: { entityId: 'w-lookalike' }, name: `${plain} (old copy)` },
+      { id: { entityId: 'w-other-space' }, name: `HR: ${plain} workflow for Jira Service Management` },
+      { id: { entityId: 'w-shared' }, name: `${plain} workflow` },
+    );
+    template.name = `ITS: ${plain} workflow for Jira Service Management`;
+    const bp = { ...signed(base), design: base.design.map((d) => (d.type === 'space' ? ({ ...d, spec: { ...d.spec, mode: 'existing', key: 'ITS' } } as typeof d) : d)) };
+    const state = newState(bp.id, seed.siteUrl);
+    const dry = await plan({ bp, state, api: seed.client(true) });
+    await apply({ bp, state, api: seed.client(false), readApi: seed.client(true), approvedPlanHash: dry.planHash });
+    expect(state.elements['wf.service-request-approvals']?.remote?.id).toBe(template.id.entityId);
+
+    // Without a space copy, the unprefixed exact match wins over the look-alike and the other space's copy.
+    template.name = 'Something else';
+    const state2 = newState(bp.id, seed.siteUrl);
+    const dry2 = await plan({ bp, state: state2, api: seed.client(true) });
+    await apply({ bp, state: state2, api: seed.client(false), readApi: seed.client(true), approvedPlanHash: dry2.planHash });
+    expect(state2.elements['wf.service-request-approvals']?.remote?.id).toBe('w-shared');
   });
 });

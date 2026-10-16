@@ -25,7 +25,11 @@ SEs, partners and customers use it.
 
 - Shared contracts live in `packages/model` (zod). Every package and tool reads and writes these types only.
 - `packages/reference` is data plus validation. Each reference artifact records its verification status. Never
-  mark something `verified` unless it was captured from a real Atlassian site.
+  mark something `verified` unless it was captured from a real Atlassian site. When a capture contradicts a seeded
+  fact, mark the old artifact `deprecated`, add the verified one, and redesign the elements that relied on it, using
+  template names and keeping extensions to a justified minimum.
+- Write retries must never duplicate: only idempotent requests are retried on 5xx; an uncertain create is resolved
+  by looking the element up again, never by re-sending it.
 - Builds are declarative and idempotent (plan → dry-run → apply → verify). An LLM never calls Atlassian or
   ServiceNow APIs directly. It calls the deterministic tools exposed by the MCP server.
 - Build safety gates live in `packages/mcp-server/src/service.ts`, never in prompts. When orchestrating:

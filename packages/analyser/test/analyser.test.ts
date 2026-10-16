@@ -137,3 +137,32 @@ describe('analyse (enterprise fixture)', () => {
     expect(names.some((n) => /Incident Management Workflow/.test(n))).toBe(false);
   });
 });
+
+describe('reference confidence', () => {
+  it('reports how much of the design rests on verified reference facts, and lists extensions', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { snapshotFromXml } = await import('@snjsm/collector');
+    const { analyse, referenceConfidence, renderReport } = await import('@snjsm/analyser');
+    const xml = readFileSync(join(__dirname, '../../collector/test/fixtures/enterprise-update-set.xml'), 'utf8');
+    const res = analyse(snapshotFromXml([{ name: 'e.xml', xml }]), { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' });
+    const rc = referenceConfidence(res.blueprint);
+    expect(rc.deprecated).toBe(0);
+    expect(rc.verified).toBeGreaterThan(0);
+    expect(rc.verified + rc.unverified + rc.deprecated).toBe(rc.artifacts.length);
+    // Extensions are not counted as reference reliance.
+    const extNames = new Set(res.blueprint.design.filter((d) => d.origin === 'extension').map((d) => d.name));
+    expect(rc.artifacts.flatMap((a) => a.elements).some((n) => extNames.has(n) && !res.blueprint.design.some((d) => d.name === n && d.origin !== 'extension'))).toBe(false);
+    expect(rc.artifacts.find((a) => a.id === 'atl.assets.itam.object-type.hardware-models')).toMatchObject({ status: 'verified' });
+    const md = renderReport(res);
+    expect(md).toMatch(/Reference confidence/);
+    expect(md).toMatch(/Extensions and why/);
+    expect(md).toContain('Person');
+  });
+
+  it('flags a design that relies on a deprecated reference', async () => {
+    const { referenceConfidence } = await import('@snjsm/analyser');
+    const bp = { design: [{ id: 'x', name: 'Old location', type: 'assets-object-type', origin: 'reference', referenceId: 'atl.assets.itam.object-type.location' }] } as never;
+    expect(referenceConfidence(bp)).toMatchObject({ deprecated: 1, artifacts: [{ status: 'deprecated', elements: ['Old location'] }] });
+  });
+});

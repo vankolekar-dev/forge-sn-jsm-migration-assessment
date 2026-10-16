@@ -106,8 +106,10 @@
       "partOf": "atl.assets.template.itam",
       "attributes": {},
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not in the IT asset management template; the template has Hardware Assets / Laptops / Phones / Servers / Printers"
       }
     },
     {
@@ -119,8 +121,10 @@
       "partOf": "atl.assets.template.itam",
       "attributes": {},
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not in the IT asset management template; the template has Hardware Models (with Model Categories)"
       }
     },
     {
@@ -131,8 +135,10 @@
       "partOf": "atl.assets.template.itam",
       "attributes": {},
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not in the IT asset management template; the template has no Location type: a justified extension if an outcome needs it"
       }
     },
     {
@@ -144,8 +150,10 @@
       "partOf": "atl.assets.template.itam",
       "attributes": {},
       "verification": {
-        "status": "unverified",
-        "notes": "missing on https://one-atlas-vish.atlassian.net (captured 2026-10-15T16:35:26.204Z): object type not in schema \"zz_reference_itam\""
+        "status": "deprecated",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "not in the IT asset management template; the template has no Person type: a justified extension if an outcome needs it"
       }
     },
     {
@@ -157,6 +165,956 @@
       "attributes": {},
       "verification": {
         "status": "unverified"
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.models",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Models",
+      "description": "Object type from the IT asset management template; abstract: holds shared attributes for its children.",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "abstract": true,
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.model-categories",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Model Categories",
+      "description": "Object type from the IT asset management template (under Models).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Models",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.software-models",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Software Models",
+      "description": "Object type from the IT asset management template (under Models).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Models",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Version",
+            "type": "text"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.hardware-models",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Hardware Models",
+      "description": "Object type from the IT asset management template (under Models).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Models",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Category",
+            "type": "reference",
+            "referenceTo": "Model Categories"
+          },
+          {
+            "name": "Model ID",
+            "type": "text"
+          },
+          {
+            "name": "Bar code",
+            "type": "text"
+          },
+          {
+            "name": "Description",
+            "type": "text"
+          },
+          {
+            "name": "Product Information",
+            "type": "textarea"
+          },
+          {
+            "name": "Unit Price",
+            "type": "integer"
+          },
+          {
+            "name": "Status",
+            "type": "status"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.hardware-assets",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Hardware Assets",
+      "description": "Object type from the IT asset management template; abstract: holds shared attributes for its children.",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "abstract": true,
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text"
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text"
+          },
+          {
+            "name": "Serial Number",
+            "type": "text"
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models"
+          },
+          {
+            "name": "PO Number",
+            "type": "text"
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text"
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text"
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text"
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date"
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date"
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date"
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select"
+          },
+          {
+            "name": "Owner Group",
+            "type": "text"
+          },
+          {
+            "name": "Device Type",
+            "type": "select"
+          },
+          {
+            "name": "Asset Status",
+            "type": "status"
+          },
+          {
+            "name": "OS Version",
+            "type": "text"
+          },
+          {
+            "name": "Support Group",
+            "type": "text"
+          },
+          {
+            "name": "Operational Status",
+            "type": "status"
+          },
+          {
+            "name": "Status",
+            "type": "status"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.phones",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Phones",
+      "description": "Object type from the IT asset management template (under Hardware Assets).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Hardware Assets",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "IMEI",
+            "type": "text"
+          },
+          {
+            "name": "Phone number",
+            "type": "text"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.laptops",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Laptops",
+      "description": "Object type from the IT asset management template (under Hardware Assets).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Hardware Assets",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.servers",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Servers",
+      "description": "Object type from the IT asset management template (under Hardware Assets).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Hardware Assets",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "IP Address",
+            "type": "text"
+          },
+          {
+            "name": "Domain Name",
+            "type": "text"
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.red-hat-linux",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Red Hat Linux",
+      "description": "Object type from the IT asset management template (under Servers).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Servers",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "IP Address",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Domain Name",
+            "type": "text",
+            "inherited": true
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.windows-server",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Windows Server",
+      "description": "Object type from the IT asset management template (under Servers).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Servers",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "IP Address",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Domain Name",
+            "type": "text",
+            "inherited": true
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
+      }
+    },
+    {
+      "id": "atl.assets.itam.object-type.printers",
+      "kind": "assets-object-type",
+      "product": "assets",
+      "name": "Printers",
+      "description": "Object type from the IT asset management template (under Hardware Assets).",
+      "partOf": "atl.assets.template.itam",
+      "attributes": {
+        "parent": "Hardware Assets",
+        "attributes": [
+          {
+            "name": "Name",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Asset Tag",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Serial Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Model Name",
+            "type": "reference",
+            "referenceTo": "Hardware Models",
+            "inherited": true
+          },
+          {
+            "name": "PO Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Invoice Number",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Lease Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Maintenance Contract",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Purchase Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Refresh Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Last Scan Date",
+            "type": "date",
+            "inherited": true
+          },
+          {
+            "name": "Ownership Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Owner Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Device Type",
+            "type": "select",
+            "inherited": true
+          },
+          {
+            "name": "Asset Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "OS Version",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Support Group",
+            "type": "text",
+            "inherited": true
+          },
+          {
+            "name": "Operational Status",
+            "type": "status",
+            "inherited": true
+          },
+          {
+            "name": "Status",
+            "type": "status",
+            "inherited": true
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "verifiedOn": "2026-10-15",
+        "verifiedAgainst": "https://one-atlas-vish.atlassian.net (fresh ITSM space ZZREF / ITAM schema ZZITAM)",
+        "notes": "object type and attribute names / types read from the site. Reference targets (Category → Model Categories, Model Name → Hardware Models) are inferred from the names; the capture does not record them."
       }
     }
   ]

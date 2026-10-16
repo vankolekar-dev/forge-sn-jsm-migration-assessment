@@ -1,4 +1,5 @@
 import type { Blueprint, Outcome } from '@snjsm/model';
+import { getReferenceArtifact } from '@snjsm/reference';
 import type { AnalysisResult } from './analyse';
 import type { AreaAssessment, AssessmentFinding, Severity } from './assess/types';
 import { fmt } from './params';
@@ -40,6 +41,32 @@ function outcomeBlock(o: Outcome, names: (ids: string[]) => string): string {
 }
 
 /** Customer-ready assessment report in Markdown. */
+export interface ReferenceConfidence {
+  /** Reference artifacts the design relies on, with their verification and the design elements using them. */
+  artifacts: { id: string; name: string; status: 'verified' | 'unverified' | 'deprecated' | 'missing'; verifiedOn?: string; notes?: string; elements: string[] }[];
+  verified: number;
+  unverified: number;
+  deprecated: number;
+}
+
+/** How much of the design rests on reference facts confirmed on a live site. */
+export function referenceConfidence(bp: Blueprint): ReferenceConfidence {
+  const by = new Map<string, ReferenceConfidence['artifacts'][number]>();
+  for (const d of bp.design) {
+    if (!d.referenceId || d.origin === 'extension') continue;
+    let r = by.get(d.referenceId);
+    if (!r) {
+      const art = getReferenceArtifact(d.referenceId);
+      r = { id: d.referenceId, name: art?.name ?? d.referenceId, status: art?.verification.status ?? 'missing', ...(art?.verification.verifiedOn ? { verifiedOn: art.verification.verifiedOn } : {}), ...(art?.verification.notes ? { notes: art.verification.notes } : {}), elements: [] };
+      by.set(d.referenceId, r);
+    }
+    if (!r.elements.includes(d.name)) r.elements.push(d.name);
+  }
+  const artifacts = [...by.values()].sort((x, y) => ['deprecated', 'missing', 'unverified', 'verified'].indexOf(x.status) - ['deprecated', 'missing', 'unverified', 'verified'].indexOf(y.status) || x.id.localeCompare(y.id));
+  const n = (st: string) => artifacts.filter((x) => x.status === st).length;
+  return { artifacts, verified: n('verified'), unverified: n('unverified'), deprecated: n('deprecated') + n('missing') };
+}
+
 export function renderReport({ blueprint: bp, assessment: a }: AnalysisResult): string {
   const ev = new Map(bp.evidence.map((e) => [e.id, e]));
   const names = (ids: string[], n = 8) => {
@@ -55,6 +82,8 @@ export function renderReport({ blueprint: bp, assessment: a }: AnalysisResult): 
   const cmdbArea = a.areas.find((x) => x.area === 'cmdb');
   const cmdbDetails = cmdbArea?.details as { objectTypes?: { label: string; origin: string; classes: string[]; population: number }[]; buildPasses?: { pass: number; what: string; items: string[] }[] } | undefined;
   const errors = a.validation.filter((i) => i.severity === 'error');
+  const refs = referenceConfidence(bp);
+  const extensions = bp.design.filter((d) => d.origin === 'extension');
 
   const out: string[] = [];
   out.push(`# ServiceNow → Jira Service Management assessment: ${bp.customer.name}`);
@@ -68,6 +97,7 @@ export function renderReport({ blueprint: bp, assessment: a }: AnalysisResult): 
     `${a.practices.filter((p) => !p.parent).length} practices found (${a.practices.filter((p) => p.parent).length} sub-practices); ${covered.length} of ${a.practices.length} covered by the reference catalogue.`,
     `${caps.length} capabilit${caps.length === 1 ? 'y' : 'ies'} matched: ${caps.map((c) => `${c.capabilityId} (${c.status}, fit ${c.fit?.score ?? '—'}%)`).join(', ') || 'none'}.`,
     `${bp.outcomes.length} outcomes proposed for sign-off (${lowConf.length} low confidence); ${bp.design.length} design elements, ${bp.design.filter((d) => d.origin === 'extension').length} extensions.`,
+    `Reference confidence: the design relies on ${refs.artifacts.length} Atlassian reference facts; ${refs.verified} verified on a live site, ${refs.unverified} not yet verified${refs.deprecated ? `, **${refs.deprecated} contradicted by a site capture (fix the design before sign-off)**` : ''}.`,
     `${risks.length} high-severity or blocking findings.`,
     a.hasUsage ? `Usage window: ${a.usageDays ?? '?'} days.` : 'No usage data: this is a configuration-only view.',
   ]));
@@ -107,6 +137,11 @@ export function renderReport({ blueprint: bp, assessment: a }: AnalysisResult): 
 
   out.push('## 6. Target design (Atlassian reference)');
   out.push(table(['Element', 'Type', 'Origin', 'Reference', 'Delivers', 'Notes'], bp.design.map((d) => [d.name, d.type, d.origin, d.referenceId ?? '—', d.deliversOutcomeIds.length, d.notes ?? ''])));
+  out.push('### Reference confidence');
+  out.push('Which Atlassian reference facts the design relies on, and whether they were confirmed by capturing a fresh template on a live site. Unverified facts are assumptions: confirm them before relying on the plan.');
+  out.push(table(['Reference', 'Status', 'Checked', 'Used by', 'Notes'], refs.artifacts.map((r) => [`${r.name} (\`${r.id}\`)`, { verified: '✅ verified', unverified: '⚠️ unverified', deprecated: '⛔ contradicted', missing: '⛔ not in library' }[r.status], r.verifiedOn ?? '—', r.elements.slice(0, 4).join(', ') + (r.elements.length > 4 ? ` +${r.elements.length - 4}` : ''), r.notes ?? ''])));
+  out.push('### Extensions and why');
+  out.push(table(['Element', 'Type', 'Why', 'Outcomes', 'Alternatives considered'], extensions.map((d) => [d.name, d.type, d.justification?.reason ?? '⛔ no justification', d.justification?.outcomeIds.join(', ') || '—', d.justification?.alternativesConsidered.join('; ') || '—'])));
 
   out.push('## 7. Findings by area');
   for (const x of a.areas) out.push(area(x, names));
