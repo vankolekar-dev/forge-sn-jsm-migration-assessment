@@ -18,6 +18,8 @@ export class FakeSite {
   issueTypes: Obj[] = [{ id: '1', name: 'Task' }];
   projectIssueTypes = new Map<string, string[]>();
   workflows: Obj[] = [];
+  /** Ids of fields created through the API in this fake (used by opts.staleFieldList). */
+  readonly createdFields = new Set<string>();
   fields: Obj[] = [
     { id: 'summary', name: 'Summary', custom: false },
     { id: 'description', name: 'Description', custom: false },
@@ -39,8 +41,10 @@ export class FakeSite {
 
   /**
    * @param opts.systemPrefix name template work types "[System] <name>", as seen on a live site (2026-10-15)
+   * @param opts.staleFieldList GET /rest/api/3/field omits fields created through the API, as seen on a live site
+   *   (2026-10-16); /rest/api/3/field/search is current
    */
-  constructor(readonly siteUrl = 'https://fake-sandbox.atlassian.net', readonly opts: { systemPrefix?: boolean } = {}) {}
+  constructor(readonly siteUrl = 'https://fake-sandbox.atlassian.net', readonly opts: { systemPrefix?: boolean; staleFieldList?: boolean } = {}) {}
   private id = () => String(++this.seq);
 
   /**
@@ -146,11 +150,19 @@ export class FakeSite {
       if (path === '/rest/api/3/issuetype' && m === 'POST') { const t = { id: this.id(), name: body.name, description: body.description }; this.issueTypes.push(t); return t; }
       if ((r = at(/^\/rest\/api\/3\/issuetype\/(\w+)$/))) return this.issueTypes.find((t) => t.id === r![1]) ?? (() => { throw notFound('issuetype'); })();
       if (path === '/rest/api/3/workflows/search') return { values: this.workflows.filter((w) => w.name.toLowerCase().includes((q.get('queryString') ?? '').toLowerCase())) };
-      if (path === '/rest/api/3/field' && m === 'GET') return this.fields;
+      if (path === '/rest/api/3/field' && m === 'GET') return this.opts.staleFieldList ? this.fields.filter((f) => !this.createdFields.has(f.id)) : this.fields;
+      if (path === '/rest/api/3/field/search') {
+        const ids = q.getAll('id');
+        const query = (q.get('query') ?? '').toLowerCase();
+        const all = this.fields.filter((f) => (ids.length ? ids.includes(f.id) : f.name.toLowerCase().includes(query)));
+        const startAt = Number(q.get('startAt') ?? 0), max = Number(q.get('maxResults') ?? 50);
+        return { values: all.slice(startAt, startAt + max), startAt, total: all.length, isLast: startAt + max >= all.length };
+      }
       if (path === '/rest/api/3/field' && m === 'POST') {
         if (!body.type || !body.searcherKey) throw bad('field needs type and searcherKey');
         const f = { id: `customfield_${this.id()}`, name: body.name, custom: true, schema: { custom: body.type } };
         this.fields.push(f);
+        this.createdFields.add(f.id);
         this.contexts.set(f.id, [{ id: this.id(), isGlobalContext: true, options: [] }]);
         return f;
       }
@@ -191,7 +203,8 @@ export class FakeSite {
         if (!this.schemas.some((s) => s.id === String(body.objectSchemaId))) throw bad('unknown schema');
         const t = { id: this.id(), name: body.name, objectSchemaId: String(body.objectSchemaId), parentObjectTypeId: body.parentObjectTypeId };
         this.objectTypes.push(t);
-        for (const n of ['Key', 'Name', 'Created', 'Updated']) this.attributes.push({ id: this.id(), name: n, objectTypeId: t.id, type: 0 });
+        // Live site (2026-10-16): an object type created through the API gets only Key, Created and Updated; no Name.
+        for (const n of ['Key', 'Created', 'Updated']) this.attributes.push({ id: this.id(), name: n, objectTypeId: t.id, type: 0, system: true });
         return t;
       }
       if ((r = at(/^\/objecttype\/(\w+)\/attributes$/))) return this.attributes.filter((a) => a.objectTypeId === r![1]);

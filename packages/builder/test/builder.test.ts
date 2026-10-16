@@ -164,7 +164,9 @@ describe('apply on a fake sandbox', () => {
     expect(st('as.ot.person')?.status).toBe('created');
     expect(st('as.attr.model-standard')?.status).toBe('created');
     expect(st('as.attr.person-user')?.status).toBe('created');
-    expect(st('as.attr.person-name')?.status).toBe('adopted'); // "Name" comes with every object type
+    // An object type created through the API has only Key, Created and Updated (live site), so Name is created.
+    expect(st('as.attr.person-name')?.status).toBe('created');
+    expect(site.attributes.filter((a) => a.objectTypeId === st('as.ot.person')!.remote!.id && a.name === 'Name')).toHaveLength(1);
     expect(site.objectTypes.length).toBe(typesBefore + 1); // only Person
     expect(site.writes.filter((w) => /objecttypeattribute/.test(w.path) && (w.body as { name?: string })?.name === 'Unit Price')).toHaveLength(0);
     // The fields that point at the schema can now be built; the reference-type attribute still waits.
@@ -384,5 +386,56 @@ describe('template awareness', () => {
     const dry2 = await plan({ bp, state: state2, api: seed.client(true) });
     await apply({ bp, state: state2, api: seed.client(false), readApi: seed.client(true), approvedPlanHash: dry2.planHash });
     expect(state2.elements['wf.service-request-approvals']?.remote?.id).toBe('w-shared');
+  });
+});
+
+describe('lagging field list (seen on a live site)', () => {
+  it('finds just-created fields through /field/search, so verify passes and a re-run never duplicates them', async () => {
+    const site = new FakeSite(undefined, { staleFieldList: true });
+    const bp = signed(base);
+    const { state } = await build(site, bp);
+    const created = Object.entries(state.elements).filter(([id, e]) => e.status === 'created' && id.startsWith('fld.')).map(([id]) => id);
+    expect(created.length).toBeGreaterThan(0);
+    // The full list really is stale in this fake.
+    const list = (await site.client(true).jira('GET', '/rest/api/3/field')) as { id: string }[];
+    created.forEach((id) => expect(list.some((f) => f.id === state.elements[id]!.remote!.id)).toBe(false));
+
+    const v = await verify(bp, state, site.client(true));
+    created.forEach((id) => expect(v.results.find((r) => r.designId === id)?.status, id).toBe('ok'));
+
+    // Lost state (or a fresh state file): discovery by name must still find them, not create duplicates.
+    const fresh = newState(bp.id, site.siteUrl);
+    const again = await plan({ bp, state: fresh, api: site.client(true) });
+    created.forEach((id) => expect(again.steps.find((s) => s.designId === id)?.action, id).toBe('adopt'));
+    const fieldsBefore = site.fields.length;
+    await apply({ bp, state: fresh, api: site.client(false), readApi: site.client(true), approvedPlanHash: again.planHash });
+    expect(site.fields.length).toBe(fieldsBefore);
+  });
+});
+
+describe('known API limits', () => {
+  it('blocks a create the API would reject (Assets object type description > 70) and its dependents, in every plan mode', async () => {
+    const bp = clone(base);
+    const person = bp.design.find((d) => d.id === 'as.ot.person') as Extract<Blueprint['design'][number], { type: 'assets-object-type' }>;
+    person.spec.description = 'x'.repeat(71);
+    const site = new FakeSite();
+    const state = newState(bp.id, site.siteUrl);
+    await build(site, signed(clone(base)), state); // builds everything else, guided schema still pending
+    createTemplateSchema(site, bp, state);
+    const p = await plan({ bp, state, api: site.client(true) });
+    const step = p.steps.find((s) => s.designId === 'as.ot.person')!;
+    expect(step).toMatchObject({ action: 'blocked' });
+    expect(step.reason).toMatch(/71 characters.*at most 70/);
+    expect(p.steps.find((s) => s.designId === 'as.attr.person-user')?.action).toBe('blocked');
+    expect(p.warnings.join(' ')).toMatch(/as\.ot\.person/);
+    // Offline too.
+    const off = await plan({ bp });
+    expect(off.steps.find((s) => s.designId === 'as.ot.person')?.reason).toMatch(/at most 70/);
+  });
+
+  it('every catalogue design passes the known API limits', async () => {
+    const { listCapabilities } = await import('@snjsm/reference');
+    const { handlerFor } = await import('@snjsm/builder');
+    for (const cap of listCapabilities()) for (const el of cap.design.elements) expect(handlerFor(el.type)?.validate?.(el as never), el.id).toBeUndefined();
   });
 });

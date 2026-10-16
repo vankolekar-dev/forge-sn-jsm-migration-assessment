@@ -237,6 +237,26 @@ const HAS_OPTIONS = new Set(['select', 'multiselect', 'radio', 'checkbox']);
 
 type JiraField = { id: string; name: string; custom: boolean; schema?: { custom?: string } };
 const allFields = (ctx: HandlerContext) => cached(ctx, 'fields', () => ctx.api.jira<JiraField[]>('GET', '/rest/api/3/field'));
+type FieldPage = { values?: JiraField[]; isLast?: boolean };
+/**
+ * GET /rest/api/3/field is served from a cache that lags behind creates (seen on a live site 2026-10-16: a field
+ * created seconds earlier was missing from it but present in /field/search). So lookups go through /field/search,
+ * which is current, and the full list is only a fallback for fields the search does not return.
+ */
+async function fieldById(ctx: HandlerContext, id: string): Promise<JiraField | undefined> {
+  const r = await ctx.api.jira<FieldPage>('GET', `/rest/api/3/field/search?id=${encodeURIComponent(id)}`);
+  return r.values?.find((f) => f.id === id) ?? (await allFields(ctx)).find((f) => f.id === id);
+}
+async function fieldsNamed(ctx: HandlerContext, name: string): Promise<JiraField[]> {
+  const out = new Map<string, JiraField>();
+  for (let startAt = 0; startAt < 500; startAt += 50) {
+    const r = await ctx.api.jira<FieldPage>('GET', `/rest/api/3/field/search?query=${encodeURIComponent(name)}&startAt=${startAt}&maxResults=50`);
+    (r.values ?? []).forEach((f) => out.set(f.id, f));
+    if (r.isLast !== false || !r.values?.length) break;
+  }
+  (await allFields(ctx)).forEach((f) => out.has(f.id) || out.set(f.id, f));
+  return [...out.values()].filter((f) => nameEq(f.name, name));
+}
 
 async function fieldContext(ctx: HandlerContext, fieldId: string): Promise<string | undefined> {
   const r = await ctx.api.jira<{ values?: { id: string; isGlobalContext?: boolean }[] }>('GET', `/rest/api/3/field/${fieldId}/context`);
@@ -252,20 +272,19 @@ export const field: Handler<E<'field'>> = {
   manualAspects: (el) => (el.spec.fieldType === 'assets-object' ? ['Assets object field configuration (object schema, AQL scope, display)'] : []),
   async discover(ctx) {
     const s = ctx.el.spec;
-    const fields = await allFields(ctx);
     if (s.systemFieldId) {
       // Some "system" fields (Approvers, Team) are custom fields with site-specific ids: fall back to the name.
-      const f = fields.find((x) => x.id === s.systemFieldId) ?? fields.find((x) => nameEq(x.name, s.name));
+      const f = (await allFields(ctx)).find((x) => x.id === s.systemFieldId) ?? (await fieldsNamed(ctx, s.name))[0];
       return f && { kind: 'field', id: f.id, name: f.name };
     }
     const want = FIELD_TYPES[s.fieldType]?.type;
-    const same = fields.filter((f) => nameEq(f.name, s.name));
+    const same = await fieldsNamed(ctx, s.name);
     const f = same.find((x) => !want || x.schema?.custom === want) ?? (isProvided(ctx.el) ? same[0] : undefined);
     return f && { kind: 'field', id: f.id, name: f.name };
   },
   desired: (ctx) => ({ name: ctx.el.spec.name, ...(HAS_OPTIONS.has(ctx.el.spec.fieldType) && ctx.el.spec.options ? { options: ctx.el.spec.options } : {}) }),
   async observe(ctx, remote) {
-    const f = (await allFields(ctx)).find((x) => x.id === remote.id);
+    const f = await fieldById(ctx, remote.id);
     if (!f) return undefined;
     const out: Record<string, unknown> = { name: f.name };
     if (HAS_OPTIONS.has(ctx.el.spec.fieldType) && ctx.el.spec.options) {

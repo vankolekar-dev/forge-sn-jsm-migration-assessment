@@ -50,7 +50,7 @@
     "spec": {
       "name": "Person",
       "schemaId": "as.schema.itam",
-      "description": "Employees and their managers, so approvals can go to the requester's manager. Extension: not in the IT asset management template."
+      "description": "Employees and their managers, so approvals go to the manager."
     },
     "justification": {
       "reason": "Approval goes to the requester's manager; the IT asset management template has no people or reporting lines, and Jira user profiles do not expose a manager to automation.",

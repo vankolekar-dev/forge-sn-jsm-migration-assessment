@@ -113,7 +113,14 @@ async function iconId(ctx: HandlerContext, want?: string): Promise<string | unde
   return (icons.find((i) => nameEq(i.name, want)) ?? icons[0])?.id;
 }
 
+/** Assets rejects longer object type descriptions: "Description must contain max 70 characters" (live site, 2026-10-16). */
+export const ASSETS_OBJECT_TYPE_DESCRIPTION_MAX = 70;
+
 export const assetsObjectType: Handler<E<'assets-object-type'>> = {
+  validate: (el) => {
+    const n = el.spec.description?.length ?? 0;
+    return n > ASSETS_OBJECT_TYPE_DESCRIPTION_MAX ? `the description is ${n} characters; Assets allows at most ${ASSETS_OBJECT_TYPE_DESCRIPTION_MAX} for an object type` : undefined;
+  },
   type: 'assets-object-type',
   canCreate: () => true,
   async discover(ctx) {

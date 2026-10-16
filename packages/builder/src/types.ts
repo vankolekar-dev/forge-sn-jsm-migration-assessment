@@ -147,6 +147,8 @@ export interface Handler<E extends DesignElement = DesignElement> {
    * problem, which blocks the step and its dependents) and values resolved from the site (e.g. a free key).
    */
   check?(ctx: HandlerContext<E>, found: Remote | undefined): Promise<CheckResult | undefined>;
+  /** Known limits of the target API, checked in every plan mode before a create (e.g. a maximum description length). */
+  validate?(el: E): string | undefined;
   /** Requests create would send (dependencies not built yet appear as <design-id>). */
   preview?(ctx: HandlerContext<E>): RequestPreview[];
   create?(ctx: HandlerContext<E>): Promise<Remote>;

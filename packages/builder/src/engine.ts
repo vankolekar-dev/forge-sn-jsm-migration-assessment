@@ -222,6 +222,18 @@ export async function plan(input: PlanInput): Promise<Plan> {
       }
     }
 
+    // Known API limits (no site needed): a create that the API would reject blocks here, not halfway through apply.
+    if (s.action === 'create' && h.validate) {
+      const problem = h.validate(el as never);
+      if (problem) {
+        s.action = 'blocked';
+        s.reason = `fix the design: ${problem}`;
+        warnings.push(`${el.id}: ${problem}`);
+        run.delete(el.id);
+        delete s.remote;
+      }
+    }
+
     // Blocked: an API step that needs the id of something a person still has to build.
     if (['create', 'adopt', 'update'].includes(s.action)) {
       const waits = deps.filter((d) => { const p = byId.get(d); return p && (p.action === 'blocked' || (p.action === 'manual' && !p.remote && p.manual?.record === 'remote-id')); });
