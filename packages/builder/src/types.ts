@@ -113,7 +113,7 @@ export interface ElementState {
   verifyResult?: VerifyStatus;
 }
 
-export interface RunRecord { id: string; op: 'apply' | 'confirm-manual' | 'verify'; at: string; planHash?: string; summary: string }
+export interface RunRecord { id: string; op: 'apply' | 'confirm-manual' | 'verify' | 'acceptance'; at: string; planHash?: string; summary: string }
 
 export interface BuildState {
   schemaVersion: '1';

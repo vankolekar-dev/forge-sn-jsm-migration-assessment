@@ -5,6 +5,7 @@ export * from './design-jsm';
 export * from './design-assets';
 export * from './design';
 export * from './capability';
+export * from './checks';
 export * from './coverage';
 export * from './blueprint';
 export * from './validate';

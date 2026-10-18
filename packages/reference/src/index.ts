@@ -1,5 +1,5 @@
 import {
-  Capability, CoverageEntry, CoverageMatrix, CoverageStatus, DesignElement, Issue, validateCapability,
+  Capability, CoverageEntry, CoverageMatrix, CoverageStatus, DesignElement, Issue, validateCapability, validateChecks, validateFixtures,
 } from '@snjsm/model';
 import { ReferenceArtifact, ReferenceFile } from './schema';
 import jsmItsm from './data/atlassian/jsm-itsm.json';
@@ -14,7 +14,7 @@ import rhDesignAssets from './data/capabilities/itsm.request-hardware/design-ass
 export * from './schema';
 
 /** Catalogue version: bump when any reference data, capability or coverage entry changes. */
-export const CATALOGUE_VERSION = '0.1.0';
+export const CATALOGUE_VERSION = '0.2.0';
 
 const REFERENCE_FILES = { 'jsm-itsm': jsmItsm, assets, automation } as const;
 
@@ -102,6 +102,8 @@ export function validateLibrary(): Issue[] {
     issues.push(...validateCapability(cap, new Set(cap.dependsOn)));
     for (const dep of cap.dependsOn) if (!capabilities.has(dep)) issues.push({ severity: 'error', path: cap.id, message: `dependsOn unknown capability ${dep}` });
     const params = new Set(cap.outcomes.flatMap((o) => o.parameters.map((p) => p.name)));
+    const design = new Map(cap.design.elements.map((e) => [e.id, e]));
+    const fixtureIds = new Set(cap.fixtures.map((f) => f.id));
     for (const el of cap.design.elements) {
       if (el.referenceId && !artifacts.has(el.referenceId)) issues.push({ severity: 'error', path: `${cap.id}.design.${el.id}`, message: `referenceId ${el.referenceId} is not in the reference library` });
       // A design must not rest on a reference artifact that a site capture contradicted.
@@ -118,6 +120,13 @@ export function validateLibrary(): Issue[] {
         for (const m of JSON.stringify(ac).matchAll(PLACEHOLDER)) {
           if (!params.has(m[1]!)) issues.push({ severity: 'error', path: `${cap.id}.outcomes.${o.id}.${ac.id}`, message: `placeholder {{${m[1]}}} is not a capability parameter` });
         }
+        issues.push(...validateChecks(`${cap.id}.outcomes.${o.id}.${ac.id}`, ac, { design, fixtureIds }));
+      }
+    }
+    issues.push(...validateFixtures(`${cap.id}.fixtures`, cap.fixtures, design, params));
+    for (const f of cap.fixtures) {
+      for (const m of JSON.stringify(f.attributes).matchAll(PLACEHOLDER)) {
+        if (!params.has(m[1]!)) issues.push({ severity: 'error', path: `${cap.id}.fixtures.${f.id}`, message: `placeholder {{${m[1]}}} is not a capability parameter` });
       }
     }
   }

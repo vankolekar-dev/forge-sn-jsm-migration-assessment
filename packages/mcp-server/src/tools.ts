@@ -89,4 +89,29 @@ export function registerTools(server: McpServer, svc: BuildService): void {
     description: 'One epic per capability with an automated-build story and one story per guided step, for Rovo to create in Jira (this tool does not create anything).',
     inputSchema: { blueprint, site, ...scope }, annotations: { readOnlyHint: true },
   }, run((a) => svc.workBreakdown(a)));
+
+  server.registerTool('acceptance_plan', {
+    title: 'Plan acceptance tests',
+    description: 'Offline: turn the signed-off outcomes\' given/when/then criteria into runnable checks for the built site, and show which are ready, which are blocked (guided steps pending, design drift, missing persona credentials or test data) and which a person checks by hand. Returns the runHash a person must approve before acceptance_run. Writes the plan to tests/.',
+    inputSchema: { blueprint, site, outcomeIds: z.array(z.string()).optional().describe('Only these outcomes (default: all)') },
+    annotations: ro,
+  }, run((a) => svc.acceptancePlan(a)));
+
+  server.registerTool('acceptance_run', {
+    title: 'Run acceptance tests',
+    description: 'Run the ready checks of a reviewed acceptance plan in the sandbox: creates tagged test requests and Assets objects, acts as the test personas, records evidence per step, and removes the test data afterwards. Never call this on your own initiative: show the plan to the person, and only pass confirm when they have typed "TEST <runHash> ON <site>" themselves. Refused unless the site is in SNJSM_WRITE_SITES and a fresh plan still matches runHash. Notifications are reported as manual checks.',
+    inputSchema: {
+      blueprint, site, runHash: z.string().describe('runHash from acceptance_plan'),
+      confirm: z.string().describe('The exact phrase typed by the person: TEST <runHash> ON <site>'),
+      keep: z.boolean().optional().describe('Keep the test data for inspection (remove later with acceptance_cleanup)'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, run((a) => svc.acceptanceRun(a)));
+
+  server.registerTool('acceptance_cleanup', {
+    title: 'Remove acceptance test data',
+    description: 'Delete the test requests and Assets objects a run left behind, from its ledger. Only items that still carry the run\'s tag are deleted. Only pass confirm when the person has typed "CLEANUP <runId> ON <site>" themselves.',
+    inputSchema: { blueprint, site, runId: z.string().describe('runId from acceptance_run'), confirm: z.string().describe('The exact phrase typed by the person: CLEANUP <runId> ON <site>') },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  }, run((a) => svc.acceptanceCleanup(a)));
 }

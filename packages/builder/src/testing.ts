@@ -9,9 +9,11 @@ import type { SiteApi } from './types';
 type Obj = Record<string, any>;
 const notFound = (what: string) => Object.assign(new Error(`404 ${what} not found`), { status: 404 });
 const bad = (what: string) => Object.assign(new Error(`400 ${what}`), { status: 400 });
+const forbidden = (what: string) => Object.assign(new Error(`403 ${what}`), { status: 403 });
+const NO_ROUTE = Symbol('no-route');
 
 export class FakeSite {
-  readonly writes: { method: string; path: string; body?: unknown }[] = [];
+  readonly writes: { method: string; path: string; body?: unknown; as?: string }[] = [];
   private seq = 10000;
   projects: Obj[] = [];
   serviceDesks: Obj[] = [];
@@ -53,22 +55,141 @@ export class FakeSite {
    */
   faults: { method: string; path: RegExp; applied: boolean }[] = [];
 
-  /** A client view. Read-only views reject writes, like AtlassianClient. */
-  client(readOnly: boolean): SiteApi {
+  // ---- Runtime: requests, workflow, approvals, SLAs and Assets objects (used by the acceptance runner) ----
+  issues: Obj[] = [];
+  objects: Obj[] = [];
+  /** Runtime workflow: from = status names ([] = any status). */
+  transitions: { name: string; from: string[]; to: string }[] = [];
+  initialStatus = 'Waiting for support';
+  doneStatuses = new Set(['Resolved', 'Closed', 'Canceled']);
+  /** What an approval decision does to the request (the workflow's approve/decline transitions). */
+  approvalOutcomes: Record<'approve' | 'decline', { status: string; resolution?: string }> = {
+    approve: { status: 'Waiting for support' },
+    decline: { status: 'Resolved', resolution: 'Declined' },
+  };
+  /** SLAs: the cycle runs while the request is in one of `runningIn` (empty = from creation until done). */
+  slas: { name: string; goalMillis: number; runningIn?: string[] }[] = [];
+  /** Emulated automation: called after a request is created, transitioned or an approval is decided. */
+  automation?: (event: 'created' | 'transitioned' | 'approval', issue: Obj, site: FakeSite) => void;
+
+  /** Add a pending approval for a request (what an approval step does on entering its status). */
+  requestApproval(issue: Obj, approverIds: string[]) {
+    issue.approvals.push({ id: this.id(), name: 'Approval', finalDecision: 'pending', approvers: approverIds.map((a) => ({ approver: { accountId: a }, approverDecision: 'pending' })) });
+  }
+  setStatus(issue: Obj, status: string, resolution?: string | null) {
+    issue.fields.status = { name: status };
+    issue.fields.resolution = this.doneStatuses.has(status) ? { name: resolution ?? 'Done' } : null;
+  }
+
+  /** A client view. Read-only views reject writes, like AtlassianClient. `as` = the persona's account id. */
+  client(readOnly: boolean, as = 'fake-user'): SiteApi {
     const go = (api: 'jira' | 'jsm' | 'assets' | 'call') => async (method: string, path: string, body?: unknown) => {
       const m = method.toUpperCase();
       const isQueryPost = m === 'POST' && /\/rule\/summary$/.test(path);
       if (readOnly && m !== 'GET' && !isQueryPost) throw new Error(`read-only client refused ${m} ${path}`);
-      if (m !== 'GET' && !isQueryPost) this.writes.push({ method: m, path, body });
+      if (m !== 'GET' && !isQueryPost) this.writes.push({ method: m, path, body, ...(as !== 'fake-user' ? { as } : {}) });
       const f = this.faults.findIndex((x) => x.method === m && x.path.test(path));
       if (f >= 0) {
         const [fault] = this.faults.splice(f, 1);
-        if (fault!.applied) await this.route(api, m, path, body as Obj);
+        if (fault!.applied) await this.route(api, m, path, body as Obj, as);
         throw Object.assign(new Error(`${m} ${path} → 503 (injected; ${fault!.applied ? 'applied' : 'not applied'})`), { status: 503, uncertain: m === 'POST' });
       }
-      return this.route(api, m, path, body as Obj);
+      return this.route(api, m, path, body as Obj, as);
     };
     return { siteUrl: this.siteUrl, readOnly, jira: go('jira'), jsm: go('jsm'), assets: go('assets'), call: go('call'), cloudId: async () => 'fake-cloud' } as SiteApi;
+  }
+
+  private runtime(api: string, m: string, path: string, body: Obj, as: string): unknown {
+    const at = (re: RegExp) => path.match(re);
+    let r: RegExpMatchArray | null;
+    const issue = (key: string) => this.issues.find((i) => i.key === key || i.id === key) ?? (() => { throw notFound(`issue ${key}`); })();
+    if (api === 'jira') {
+      if (path === '/rest/api/3/myself') return { accountId: as };
+      if ((r = at(/^\/rest\/api\/3\/issue\/([\w-]+)\/transitions$/))) {
+        const i = issue(r[1]!);
+        const avail = this.transitions.map((t, n) => ({ ...t, id: String(n + 1) })).filter((t) => !t.from.length || t.from.includes(i.fields.status.name));
+        if (m === 'GET') return { transitions: avail.map((t) => ({ id: t.id, name: t.name, to: { name: t.to } })) };
+        const t = avail.find((x) => x.id === String(body.transition?.id));
+        if (!t) throw bad(`transition ${body.transition?.id} is not available from ${i.fields.status.name}`);
+        this.setStatus(i, t.to, body.fields?.resolution?.name);
+        this.automation?.('transitioned', i, this);
+        return undefined;
+      }
+      if ((r = at(/^\/rest\/api\/3\/issue\/([\w-]+)$/))) {
+        const i = issue(r[1]!);
+        if (m === 'GET') return { id: i.id, key: i.key, fields: i.fields };
+        if (m === 'DELETE') { this.issues = this.issues.filter((x) => x !== i); return undefined; }
+        if (m === 'PUT') {
+          Object.assign(i.fields, body.fields ?? {});
+          for (const op of body.update?.labels ?? []) if (op.add) i.fields.labels = [...new Set([...(i.fields.labels ?? []), op.add])];
+          return undefined;
+        }
+      }
+    }
+    if (api === 'jsm') {
+      if (path === '/rest/servicedeskapi/assets/workspace') return { values: [{ workspaceId: 'fake-workspace' }] };
+      if (path === '/rest/servicedeskapi/request' && m === 'POST') {
+        const sd = this.serviceDesks.find((d) => d.id === String(body.serviceDeskId)) ?? (() => { throw bad(`service desk ${body.serviceDeskId}`); })();
+        const t = this.requestTypes.find((x) => x.id === String(body.requestTypeId) && x.sd === sd.id) ?? (() => { throw bad(`request type ${body.requestTypeId}`); })();
+        const values = body.requestFieldValues ?? {};
+        if (!values.summary) throw bad('summary is required');
+        const id = this.id();
+        const n = this.issues.filter((i) => i.projectKey === sd.projectKey).length + 1;
+        const i: Obj = { id, key: `${sd.projectKey}-${n}`, projectKey: sd.projectKey, requestTypeId: t.id, approvals: [], comments: [], fields: { labels: [], ...values, reporter: { accountId: body.raiseOnBehalfOf ?? as } } };
+        this.setStatus(i, this.initialStatus);
+        this.issues.push(i);
+        this.automation?.('created', i, this);
+        return { issueId: id, issueKey: i.key, currentStatus: { status: i.fields.status.name } };
+      }
+      if ((r = at(/^\/rest\/servicedeskapi\/request\/([\w-]+)\/approval$/))) return { values: issue(r[1]!).approvals };
+      if ((r = at(/^\/rest\/servicedeskapi\/request\/([\w-]+)\/approval\/(\w+)$/)) && m === 'POST') {
+        const i = issue(r[1]!);
+        const a = i.approvals.find((x: Obj) => x.id === r![2]) ?? (() => { throw notFound('approval'); })();
+        const mine = a.approvers.find((x: Obj) => x.approver.accountId === as);
+        if (!mine) throw forbidden(`${as} is not an approver`);
+        if (a.finalDecision !== 'pending') throw bad('approval already decided');
+        const decision = body.decision === 'approve' ? 'approve' : body.decision === 'decline' ? 'decline' : (() => { throw bad(`decision ${body.decision}`); })();
+        mine.approverDecision = a.finalDecision = decision === 'approve' ? 'approved' : 'declined';
+        const o = this.approvalOutcomes[decision];
+        this.setStatus(i, o.status, o.resolution);
+        this.automation?.('approval', i, this);
+        return a;
+      }
+      if ((r = at(/^\/rest\/servicedeskapi\/request\/([\w-]+)\/comment$/)) && m === 'POST') {
+        const c = { id: this.id(), body: body.body, public: body.public !== false, author: { accountId: as } };
+        issue(r[1]!).comments.push(c);
+        return c;
+      }
+      if ((r = at(/^\/rest\/servicedeskapi\/request\/([\w-]+)\/sla$/))) {
+        const i = issue(r[1]!);
+        const status = i.fields.status.name as string;
+        return { values: this.slas.map((s) => {
+          const running = s.runningIn?.length ? s.runningIn.includes(status) : !this.doneStatuses.has(status);
+          return { name: s.name, ...(running ? { ongoingCycle: { breached: false, paused: false, goalDuration: { millis: s.goalMillis } } } : {}), completedCycles: [] };
+        }) };
+      }
+    }
+    if (api === 'assets') {
+      if (path === '/object/create' && m === 'POST') {
+        const t = this.objectTypes.find((x) => x.id === String(body.objectTypeId)) ?? (() => { throw bad(`object type ${body.objectTypeId}`); })();
+        const attrs: Obj[] = body.attributes ?? [];
+        for (const a of attrs) if (!this.attributes.some((x) => x.id === String(a.objectTypeAttributeId) && x.objectTypeId === t.id)) throw bad(`attribute ${a.objectTypeAttributeId} is not on object type ${t.id}`);
+        const nameAttr = this.attributes.find((x) => x.objectTypeId === t.id && x.name === 'Name');
+        const label = attrs.find((a) => nameAttr && String(a.objectTypeAttributeId) === nameAttr.id)?.objectAttributeValues?.[0]?.value;
+        if (!label) throw bad('Name is required');
+        const schema = this.schemas.find((x) => x.id === t.objectSchemaId);
+        const id = this.id();
+        const o = { id, objectKey: `${schema?.objectSchemaKey ?? 'OBJ'}-${id}`, label, objectType: { id: t.id }, attributes: attrs };
+        this.objects.push(o);
+        return o;
+      }
+      if ((r = at(/^\/object\/(\w+)$/))) {
+        const o = this.objects.find((x) => x.id === r![1]) ?? (() => { throw notFound(`object ${r![1]}`); })();
+        if (m === 'GET') return o;
+        if (m === 'DELETE') { this.objects = this.objects.filter((x) => x !== o); return undefined; }
+      }
+    }
+    return NO_ROUTE;
   }
 
   /** Seed what creating a space from a template provides (from the reference library). */
@@ -119,12 +240,14 @@ export class FakeSite {
     return s;
   }
 
-  private route(api: string, m: string, full: string, body: Obj): unknown {
+  private route(api: string, m: string, full: string, body: Obj, as = 'fake-user'): unknown {
     const [path, qs = ''] = full.replace(/^https:\/\/api\.atlassian\.com/, '').split('?');
     const q = new URLSearchParams(qs);
     const seg = path!.split('/').filter(Boolean);
     const at = (re: RegExp) => path!.match(re);
     let r: RegExpMatchArray | null;
+    const rt = this.runtime(api, m, path!, body, as);
+    if (rt !== NO_ROUTE) return rt;
 
     if (api === 'call' && (r = at(/\/rule\/summary$/))) return { data: this.automations };
 

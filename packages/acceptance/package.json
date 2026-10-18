@@ -1,0 +1,13 @@
+{
+  "name": "@snjsm/acceptance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Outcome acceptance-test runner: given/when/then checks from the signed-off outcomes, run in a sandbox with tagged test data",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@snjsm/builder": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "@snjsm/reference": "0.1.0"
+  }
+}

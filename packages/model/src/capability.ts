@@ -34,6 +34,43 @@ export const ReferenceDesign = z.object({
 });
 export type ReferenceDesign = z.infer<typeof ReferenceDesign>;
 
+/**
+ * A value for one attribute of a test fixture:
+ * - a literal (strings may contain {{param}});
+ * - { below | above: param }: a number safely under / over a numeric capability parameter (half / double);
+ * - { persona }: the Atlassian account id of a test persona (user attributes);
+ * - { fixture }: another fixture's object (reference attributes);
+ * - { status }: an Assets status by name (status attributes).
+ */
+export const FixtureValue = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.object({ below: z.string() }).strict(),
+  z.object({ above: z.string() }).strict(),
+  z.object({ persona: z.string() }).strict(),
+  z.object({ fixture: Id }).strict(),
+  z.object({ status: z.string() }).strict(),
+]);
+export type FixtureValue = z.infer<typeof FixtureValue>;
+
+/**
+ * Synthetic test data the acceptance runner creates in the sandbox (tagged, and cleaned up afterwards).
+ * Acceptance checks refer to it as "<fixture-id>". Attribute keys are design ids of assets-attribute elements.
+ */
+export const TestFixture = z.object({
+  id: Id,
+  description: z.string().min(1),
+  kind: z.literal('assets-object'),
+  objectTypeId: Id.describe('design id of the Assets object type'),
+  attributes: z.record(Id, FixtureValue),
+});
+export type TestFixture = z.infer<typeof TestFixture>;
+
+/** Test personas acceptance checks can act as or compare with ("<requester>", "as": "requester-manager"). */
+export const PERSONAS = ['requester', 'requester-manager', 'agent'] as const;
+export type Persona = (typeof PERSONAS)[number];
+
 /** One entry in the reusable capability catalogue. */
 export const Capability = z.object({
   id: Id,
@@ -45,6 +82,7 @@ export const Capability = z.object({
   outcomes: z.array(OutcomeTemplate).min(1),
   design: ReferenceDesign,
   signals: z.array(EvidenceSignal).min(1),
+  fixtures: z.array(TestFixture).default([]).describe('synthetic test data for the acceptance checks'),
   verification: Verification,
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
 });

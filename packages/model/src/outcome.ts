@@ -20,7 +20,7 @@ export const AcceptanceCriterion = z.object({
   verification: z.enum(['automated', 'manual']).default('manual'),
   check: z
     .object({
-      kind: z.enum(['create-request', 'transition', 'approve', 'decline', 'wait', 'assert-field', 'assert-status', 'assert-sla', 'assert-notification', 'assert-assignee']),
+      kind: z.enum(['create-request', 'transition', 'approve', 'decline', 'wait', 'assert-field', 'assert-status', 'assert-sla', 'assert-notification', 'assert-assignee', 'add-comment']),
       spec: z.record(z.string(), z.unknown()).default({}),
     })
     .array()

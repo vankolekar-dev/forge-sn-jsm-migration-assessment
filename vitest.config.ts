@@ -14,6 +14,7 @@ export default defineConfig({
       '@snjsm/tools': pkg('tools'),
       '@snjsm/analyser': pkg('analyser'),
       '@snjsm/builder': pkg('builder'),
+      '@snjsm/acceptance': pkg('acceptance'),
       '@snjsm/mcp-server': pkg('mcp-server'),
     },
   },

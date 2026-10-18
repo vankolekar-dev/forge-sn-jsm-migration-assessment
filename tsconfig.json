@@ -23,6 +23,9 @@
       "path": "packages/builder"
     },
     {
+      "path": "packages/acceptance"
+    },
+    {
       "path": "packages/mcp-server"
     }
   ]

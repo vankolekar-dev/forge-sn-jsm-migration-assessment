@@ -150,7 +150,7 @@ describe('MCP protocol', () => {
     const client = new Client({ name: 'test', version: '0' });
     await client.connect(b);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['acceptance_cleanup', 'acceptance_plan', 'acceptance_run', 'blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown']);
     expect(tools.find((t) => t.name === 'build_plan')?.annotations?.readOnlyHint).toBe(true);
 
     const s = await client.callTool({ name: 'blueprint_summary', arguments: { blueprint } });

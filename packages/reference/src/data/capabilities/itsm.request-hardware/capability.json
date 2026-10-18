@@ -4,7 +4,7 @@
   "practice": "service-request",
   "name": "Request hardware",
   "description": "Employees request approved hardware (laptops, monitors, phones, accessories). Requests are approved when policy requires it, routed to the fulfilment team, delivered within an agreed time, and the requester is kept informed.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "dependsOn": [],
   "verification": {
     "status": "unverified",
@@ -133,7 +133,7 @@
               "spec": {
                 "requestType": "rt.request-new-hardware",
                 "fields": {
-                  "fld.hardware-model": "<approved-model>"
+                  "fld.hardware-model": "<model-standard>"
                 }
               }
             },
@@ -141,7 +141,7 @@
               "kind": "assert-field",
               "spec": {
                 "field": "fld.hardware-model",
-                "notEmpty": true
+                "equals": "<model-standard>"
               }
             }
           ]
@@ -185,7 +185,9 @@
               "kind": "create-request",
               "spec": {
                 "requestType": "rt.request-new-hardware",
-                "model": "standard-under-threshold"
+                "fields": {
+                  "fld.hardware-model": "<model-standard>"
+                }
               }
             },
             {
@@ -211,20 +213,24 @@
               "kind": "create-request",
               "spec": {
                 "requestType": "rt.request-new-hardware",
-                "model": "over-threshold"
+                "fields": {
+                  "fld.hardware-model": "<model-over-threshold>"
+                }
               }
             },
             {
               "kind": "assert-status",
               "spec": {
-                "status": "Waiting for approval"
+                "status": "Waiting for approval",
+                "withinSeconds": 60
               }
             },
             {
               "kind": "assert-field",
               "spec": {
                 "field": "fld.approvers",
-                "equals": "<requester-manager>"
+                "equals": "<requester-manager>",
+                "withinSeconds": 60
               }
             }
           ]
@@ -240,15 +246,33 @@
           "verification": "automated",
           "check": [
             {
+              "kind": "create-request",
+              "spec": {
+                "requestType": "rt.request-new-hardware",
+                "fields": {
+                  "fld.hardware-model": "<model-over-threshold>"
+                }
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Waiting for approval",
+                "withinSeconds": 60
+              }
+            },
+            {
               "kind": "decline",
               "spec": {
+                "as": "requester-manager",
                 "comment": "Not budgeted"
               }
             },
             {
               "kind": "assert-status",
               "spec": {
-                "status": "Resolved"
+                "status": "Resolved",
+                "withinSeconds": 60
               }
             },
             {
@@ -261,7 +285,8 @@
             {
               "kind": "assert-notification",
               "spec": {
-                "audience": "customer"
+                "audience": "customer",
+                "event": "declined"
               }
             }
           ]
@@ -301,10 +326,27 @@
           "verification": "automated",
           "check": [
             {
+              "kind": "create-request",
+              "spec": {
+                "requestType": "rt.request-new-hardware",
+                "fields": {
+                  "fld.hardware-model": "<model-standard>"
+                }
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Waiting for support",
+                "withinSeconds": 120
+              }
+            },
+            {
               "kind": "assert-field",
               "spec": {
                 "field": "team",
-                "equals": "{{fulfilmentTeam}}"
+                "equals": "{{fulfilmentTeam}}",
+                "withinSeconds": 60
               }
             }
           ]
@@ -357,10 +399,50 @@
           "verification": "automated",
           "check": [
             {
+              "kind": "create-request",
+              "spec": {
+                "requestType": "rt.request-new-hardware",
+                "fields": {
+                  "fld.hardware-model": "<model-over-threshold>"
+                }
+              }
+            },
+            {
+              "kind": "assert-sla",
+              "spec": {
+                "sla": "sla.first-response",
+                "running": true,
+                "goal": "{{firstResponse}}",
+                "withinSeconds": 60
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Waiting for approval",
+                "withinSeconds": 60
+              }
+            },
+            {
+              "kind": "approve",
+              "spec": {
+                "as": "requester-manager"
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Waiting for support",
+                "withinSeconds": 60
+              }
+            },
+            {
               "kind": "assert-sla",
               "spec": {
                 "sla": "sla.time-to-resolution",
-                "running": true
+                "running": true,
+                "goal": "{{fulfilmentTime}}",
+                "withinSeconds": 60
               }
             }
           ]
@@ -391,9 +473,31 @@
           "verification": "automated",
           "check": [
             {
+              "kind": "create-request",
+              "spec": {
+                "requestType": "rt.request-new-hardware",
+                "fields": {
+                  "fld.hardware-model": "<model-standard>"
+                }
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Waiting for support",
+                "withinSeconds": 120
+              }
+            },
+            {
               "kind": "transition",
               "spec": {
                 "to": "Resolved"
+              }
+            },
+            {
+              "kind": "assert-status",
+              "spec": {
+                "status": "Resolved"
               }
             },
             {
@@ -430,6 +534,61 @@
           "verification": "manual"
         }
       ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "person-manager",
+      "description": "The requester's manager, who approves non-standard or expensive hardware",
+      "kind": "assets-object",
+      "objectTypeId": "as.ot.person",
+      "attributes": {
+        "as.attr.person-name": "Test manager",
+        "as.attr.person-user": {
+          "persona": "requester-manager"
+        }
+      }
+    },
+    {
+      "id": "person-requester",
+      "description": "The employee who requests hardware, reporting to the test manager",
+      "kind": "assets-object",
+      "objectTypeId": "as.ot.person",
+      "attributes": {
+        "as.attr.person-name": "Test requester",
+        "as.attr.person-user": {
+          "persona": "requester"
+        },
+        "as.attr.person-manager": {
+          "fixture": "person-manager"
+        }
+      }
+    },
+    {
+      "id": "model-standard",
+      "description": "A standard model priced under the approval threshold",
+      "kind": "assets-object",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributes": {
+        "as.attr.model-name": "Standard laptop",
+        "as.attr.model-standard": true,
+        "as.attr.model-unit-cost": {
+          "below": "costThreshold"
+        }
+      }
+    },
+    {
+      "id": "model-over-threshold",
+      "description": "A standard model priced over the approval threshold",
+      "kind": "assets-object",
+      "objectTypeId": "as.ot.hardware-model",
+      "attributes": {
+        "as.attr.model-name": "Premium workstation",
+        "as.attr.model-standard": true,
+        "as.attr.model-unit-cost": {
+          "above": "costThreshold"
+        }
+      }
     }
   ]
 }

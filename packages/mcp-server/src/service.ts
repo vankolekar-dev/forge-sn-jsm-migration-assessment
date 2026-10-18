@@ -1,7 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { normaliseSite } from '@snjsm/atlassian';
-import { Blueprint } from '@snjsm/model';
+import { Blueprint, PERSONAS } from '@snjsm/model';
+import {
+  type AcceptancePlan, type Clock, type TestConfig, type TestDataLedger,
+  cleanupTestData, planAcceptance, renderAcceptancePlan, renderAcceptanceResult, runAcceptance,
+} from '@snjsm/acceptance';
 import {
   apply, assertStateMatches, confirmManual, isSignedOff, newState, pendingManual, plan, readState, renderApply, renderManual,
   renderPlan, renderVerify, scopeElements, strategyOf, verify, withLock, workBreakdown, writeState,
@@ -14,7 +18,9 @@ import {
  *  - dry-runs, verify and discovery use read-only clients;
  *  - apply needs the site in an explicit allowlist, a dry-run produced by this service, and the exact phrase
  *    "APPLY <planHash> TO <site>" typed by a person; the engine then re-runs the dry-run and refuses if it changed;
- *  - the state file is locked during apply / confirm / verify, and written after every step.
+ *  - the state file is locked during apply / confirm / verify, and written after every step;
+ *  - acceptance runs create tagged test data, so they are gated like apply: allowlisted site, a plan produced by
+ *    this service, and "TEST <runHash> ON <site>"; cleanup only removes ledger items that still carry the tag.
  */
 export interface ServiceConfig {
   /** Absolute work directory (blueprints, plans, state). */
@@ -29,6 +35,9 @@ export interface ServiceConfig {
   by: string;
   options?: BuildOptions;
   clientFor(site: string, readOnly: boolean): SiteApi;
+  /** A write client acting as a test persona (its own credentials), or undefined when none are configured. */
+  personaClientFor?(site: string, persona: string): SiteApi | undefined;
+  acceptance?: { clock?: Clock; defaultWithinSeconds?: number; pollSeconds?: number };
 }
 
 export interface ScopeInput { capabilityIds?: string[]; elementIds?: string[] }
@@ -40,6 +49,8 @@ const scopeOf = (i: ScopeInput): Scope => ({ ...(i.capabilityIds?.length ? { cap
 const safeName = (s: string) => s.replace(/[^\w.@-]+/g, '_');
 const hostOf = (site: string) => new URL(site).hostname;
 export const confirmPhrase = (planHash: string, site: string) => `APPLY ${planHash} TO ${site}`;
+export const testPhrase = (runHash: string, site: string) => `TEST ${runHash} ON ${site}`;
+export const cleanupPhrase = (runId: string, site: string) => `CLEANUP ${runId} ON ${site}`;
 
 export function configFromEnv(env: NodeJS.ProcessEnv, clientFor: ServiceConfig['clientFor'], cwd = process.cwd()): ServiceConfig {
   const list = (v?: string) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean).map(normaliseSite);
@@ -263,6 +274,124 @@ export class BuildService {
       failed: Object.values(state?.elements ?? {}).filter((e) => e.status === 'failed').map((e) => ({ designId: e.designId, error: e.error })),
       lastRuns: (state?.runs ?? []).slice(-5),
     };
+  }
+
+  // ── acceptance tests ─────────────────────────────────────────────────────
+
+  /** Per-site test config: acceptance/<host>.json (persona account ids, existing objects to use as fixtures). */
+  private testConfig(site: string): TestConfig {
+    const abs = this.path(join('acceptance', `${hostOf(site)}.json`));
+    if (!existsSync(abs)) return {};
+    const c = JSON.parse(readFileSync(abs, 'utf8')) as TestConfig;
+    if (typeof c !== 'object' || c === null || Array.isArray(c)) throw new Error(`${abs} must be a JSON object`);
+    return c;
+  }
+
+  private personaClients(site: string): Record<string, SiteApi> {
+    const out: Record<string, SiteApi> = {};
+    for (const p of PERSONAS) {
+      if (p === 'agent') continue;
+      const c = this.cfg.personaClientFor?.(site, p);
+      if (c) out[p] = c;
+    }
+    return out;
+  }
+
+  private testFile(bp: Blueprint, site: string, name: string) {
+    return join('tests', `${safeName(bp.id)}@${hostOf(site)}-${name}`);
+  }
+
+  private makeAcceptancePlan(bp: Blueprint, site: string, outcomeIds?: string[]): AcceptancePlan {
+    return planAcceptance({
+      bp, state: this.loadState(bp, site), site, config: this.testConfig(site),
+      actors: Object.keys(this.personaClients(site)), ...(outcomeIds?.length ? { outcomeIds } : {}),
+    });
+  }
+
+  /** Offline: which acceptance criteria can run now, what blocks the rest, and the phrase to run them. */
+  acceptancePlan(i: { blueprint: string; site?: string; outcomeIds?: string[] }) {
+    const bp = this.loadBlueprint(i.blueprint);
+    const site = this.needSite(bp, i.site);
+    const p = this.makeAcceptancePlan(bp, site, i.outcomeIds);
+    const canRun = this.cfg.writeSites.includes(site) && p.summary.ready > 0;
+    const md = renderAcceptancePlan(p, canRun ? testPhrase(p.runHash, site) : undefined);
+    const json = this.write(this.testFile(bp, site, `plan-${p.runHash.slice(0, 12)}.json`), JSON.stringify({ ...p, outcomeIds: i.outcomeIds ?? [] }, null, 2));
+    const mdFile = this.write(this.testFile(bp, site, `plan-${p.runHash.slice(0, 12)}.md`), md);
+    return {
+      runHash: p.runHash, site, summary: p.summary, files: { json, markdown: mdFile },
+      blocked: p.criteria.filter((c) => c.status === 'blocked').map((c) => ({ acId: c.acId, reasons: c.reasons })),
+      run: !p.summary.ready
+        ? 'nothing is ready to run: finish the blocking guided steps (build_manual_steps) or add persona credentials, then plan again'
+        : canRun
+          ? `To run the ${p.summary.ready} ready check(s), a person must review this plan and type exactly: ${testPhrase(p.runHash, site)}`
+          : `acceptance runs are disabled for ${site} (not in SNJSM_WRITE_SITES)`,
+      markdown: clip(md, mdFile),
+    };
+  }
+
+  /** Run the ready criteria of a reviewed plan. Gated like apply; refuses if the plan would differ now. */
+  async acceptanceRun(i: { blueprint: string; site?: string; runHash: string; confirm: string; keep?: boolean }) {
+    const bp = this.loadBlueprint(i.blueprint);
+    const site = this.needSite(bp, i.site);
+    if (!this.cfg.writeSites.includes(site)) throw new Error(`acceptance run refused: ${site} is not in SNJSM_WRITE_SITES (${this.cfg.writeSites.join(', ') || 'empty: writes disabled'})`);
+    if (i.confirm.trim() !== testPhrase(i.runHash, site)) throw new Error(`acceptance run refused: confirmation must be exactly "${testPhrase(i.runHash, site)}", typed by the person who reviewed the test plan`);
+    const reviewed = this.path(this.testFile(bp, site, `plan-${i.runHash.slice(0, 12)}.json`));
+    if (!existsSync(reviewed)) throw new Error(`acceptance run refused: no test plan ${i.runHash} for ${site}; run acceptance_plan first`);
+    const prior = JSON.parse(readFileSync(reviewed, 'utf8')) as AcceptancePlan & { outcomeIds?: string[] };
+    if (prior.runHash !== i.runHash) throw new Error(`acceptance run refused: ${reviewed} is not plan ${i.runHash}`);
+    const statePath = this.statePath(bp, site);
+    return withLock(statePath, async () => {
+      const state = this.loadState(bp, site);
+      if (!state) throw new Error(`nothing built on ${site} yet (no state file)`);
+      const fresh = this.makeAcceptancePlan(bp, site, prior.outcomeIds);
+      if (fresh.runHash !== i.runHash) throw new Error(`acceptance run refused: the test plan changed since it was reviewed (now ${fresh.runHash}); review the new plan`);
+      if (!fresh.summary.ready) throw new Error('acceptance run refused: no criteria are ready to run');
+      const clock = this.cfg.acceptance?.clock;
+      const runId = new Date(clock?.now() ?? Date.now()).toISOString().replace(/\D/g, '').slice(0, 14);
+      const ledgerFile = this.testFile(bp, site, `run-${runId}.ledger.json`);
+      const res = await runAcceptance({
+        plan: fresh, bp, state, api: this.cfg.clientFor(site, false), personas: this.personaClients(site), config: this.testConfig(site),
+        runId, ...(i.keep ? { keep: true } : {}), ...(clock ? { clock } : {}),
+        ...(this.cfg.acceptance?.defaultWithinSeconds !== undefined ? { defaultWithinSeconds: this.cfg.acceptance.defaultWithinSeconds } : {}),
+        ...(this.cfg.acceptance?.pollSeconds !== undefined ? { pollSeconds: this.cfg.acceptance.pollSeconds } : {}),
+      });
+      this.write(ledgerFile, JSON.stringify(res.ledger, null, 2));
+      const md = renderAcceptanceResult(res);
+      const jsonFile = this.write(this.testFile(bp, site, `run-${runId}.json`), JSON.stringify(res, null, 2));
+      const mdFile = this.write(this.testFile(bp, site, `run-${runId}.md`), md);
+      const s = res.summary;
+      state.runs.push({ id: `acceptance-${runId}`, op: 'acceptance', at: res.finishedAt, planHash: res.runHash, summary: `${s.pass} pass, ${s.partial} partial, ${s.fail} fail, ${s.error} error, ${s.blocked} blocked, ${s.manual} manual` });
+      writeState(statePath, state);
+      const left = res.ledger.cleanup?.leftovers ?? [];
+      return {
+        runId, runHash: res.runHash, summary: res.summary, files: { json: jsonFile, markdown: mdFile, ledger: ledgerFile },
+        failed: res.outcomes.flatMap((o) => o.criteria).filter((c) => c.verdict === 'fail' || c.verdict === 'error').map((c) => ({ acId: c.acId, request: c.request ?? null, detail: c.steps.find((x) => x.result === 'fail' || x.result === 'error')?.detail ?? c.detail ?? '' })),
+        manualChecks: res.manualChecks,
+        testData: res.ledger.cleanup
+          ? left.length ? `${left.length} item(s) left over; after checking them, clean up with: ${cleanupPhrase(runId, site)}` : 'removed'
+          : `kept for inspection; remove with acceptance_cleanup and: ${cleanupPhrase(runId, site)}`,
+        markdown: clip(md, mdFile),
+      };
+    });
+  }
+
+  /** Remove a run's remaining test data (only items that still carry the run's tag). */
+  async acceptanceCleanup(i: { blueprint: string; site?: string; runId: string; confirm: string }) {
+    const bp = this.loadBlueprint(i.blueprint);
+    const site = this.needSite(bp, i.site);
+    if (!this.cfg.writeSites.includes(site)) throw new Error(`cleanup refused: ${site} is not in SNJSM_WRITE_SITES`);
+    if (!/^\d{14}$/.test(i.runId)) throw new Error(`invalid run id ${i.runId}`);
+    if (i.confirm.trim() !== cleanupPhrase(i.runId, site)) throw new Error(`cleanup refused: confirmation must be exactly "${cleanupPhrase(i.runId, site)}"`);
+    const file = this.testFile(bp, site, `run-${i.runId}.ledger.json`);
+    const abs = this.path(file);
+    if (!existsSync(abs)) throw new Error(`no test-data ledger for run ${i.runId} on ${site}`);
+    const ledger = JSON.parse(readFileSync(abs, 'utf8')) as TestDataLedger;
+    if (ledger.site !== site || ledger.blueprintId !== bp.id) throw new Error(`ledger ${file} belongs to ${ledger.blueprintId} on ${ledger.site}`);
+    const pending: TestDataLedger = { ...ledger, requests: ledger.requests.filter((r) => !ledger.cleanup?.removed.includes(r.key)), objects: ledger.objects.filter((o) => !ledger.cleanup?.removed.includes(o.key ?? o.id)) };
+    const done = await cleanupTestData(this.cfg.clientFor(site, false), pending, this.cfg.acceptance?.clock);
+    ledger.cleanup = { at: done!.at, removed: [...new Set([...(ledger.cleanup?.removed ?? []), ...done!.removed])], leftovers: done!.leftovers };
+    this.write(file, JSON.stringify(ledger, null, 2));
+    return { runId: i.runId, removed: done!.removed, leftovers: done!.leftovers, ledger: file };
   }
 
   async workBreakdown(i: BlueprintInput) {
