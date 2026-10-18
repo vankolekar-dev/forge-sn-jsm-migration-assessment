@@ -1,4 +1,5 @@
 import type { DesignElement, Duration } from '@snjsm/model';
+import { isUnreachable } from '@snjsm/atlassian';
 import type { Handler, HandlerContext } from '../types';
 import { cached, label, labelDeep, matchByName, orMissing, serviceDeskOf, step } from './util';
 
@@ -183,7 +184,13 @@ export const automation: Handler<E<'automation'>> = {
   canCreate: () => false,
   async discover(ctx) {
     const cloud = await ctx.api.cloudId();
-    const r = await cached(ctx, 'automation:summary', () => ctx.api.call<{ data?: { uuid: string; name: string; state?: string }[] }>('POST', AUTOMATION_SUMMARY(cloud), { limit: 100 }));
+    let r: { data?: { uuid: string; name: string; state?: string }[] };
+    try {
+      r = await cached(ctx, 'automation:summary', () => ctx.api.call<{ data?: { uuid: string; name: string; state?: string }[] }>('POST', AUTOMATION_SUMMARY(cloud), { limit: 100 }));
+    } catch (e) {
+      if (isUnreachable(e)) return undefined; // e.g. from a Forge app: cannot tell, so the rule stays a guided step
+      throw e;
+    }
     const hit = matchByName(ctx.el, r.data ?? []);
     return hit && { kind: 'automation-rule', id: hit.uuid, name: hit.name };
   },

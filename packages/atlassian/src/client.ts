@@ -40,6 +40,19 @@ export class AtlassianError extends Error {
   }
 }
 
+/**
+ * The API exists but this client cannot reach it (e.g. api.atlassian.com product APIs from a Forge app). Nothing was
+ * sent. Callers that only look things up there may treat it as "cannot tell" instead of failing.
+ */
+export class UnreachableError extends AtlassianError {
+  constructor(method: string, path: string, why: string) {
+    super(`${method} ${path} → not reachable: ${why}`, 0, method, path);
+    this.name = 'UnreachableError';
+  }
+}
+
+export const isUnreachable = (e: unknown): boolean => (e as { name?: string } | null)?.name === 'UnreachableError';
+
 const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 
 export interface ClientOptions {

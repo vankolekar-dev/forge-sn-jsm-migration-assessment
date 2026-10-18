@@ -23,7 +23,7 @@ Evidence (ServiceNow) → Outcome (platform-neutral, signed off) → Design (Atl
 | `packages/builder` | Deterministic, declarative build engine: Blueprint design → plan / dry-run / apply / verify, a handler per element type (adopt template parts, create via API, guided steps for API gaps), state file, Jira work breakdown, in-memory fake site | ✅ Built; API contract unverified until write probes run in a sandbox |
 | `packages/workflow` | Storage-agnostic build workflow shared by the MCP server, CLI and Forge workbench: sign-off, dry-run, gated apply, guided steps, verify, acceptance. All safety gates live here; reads and writes only through a `Store` (no `node:` imports) | ✅ Built |
 | `packages/mcp-server` | stdio MCP server + `npm run jsm` CLI over the workflow, with a file `Store` under the work directory (path containment, atomic writes, lock files) | ✅ Built |
-| `apps/workbench` | Forge app (Jira global page): capabilities, outcome sign-off, design, build, report | ⏳ Phase 3 |
+| `apps/workbench` | Forge app for Jira on the same workflow: upload, sign-off, dry-run / gated apply / verify as queued jobs, guided steps, acceptance plan; roles checked server-side, builds only on an admin-designated sandbox (see `apps/workbench/README.md`) | 🟡 Built and tested locally; first deploy pending |
 
 ## Reference library rules
 

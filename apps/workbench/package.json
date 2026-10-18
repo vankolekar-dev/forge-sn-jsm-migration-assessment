@@ -1,0 +1,34 @@
+{
+  "name": "@snjsm/workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Forge workbench for Jira: upload a Migration Blueprint, review and sign off outcomes, dry-run, gated apply, guided steps and verify, on the same workflow and gates as the CLI and MCP server",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build:ui": "vite build --config static/ui/vite.config.mts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p static/ui/tsconfig.json",
+    "lint": "forge lint",
+    "deploy": "npm --prefix ../.. run build && npm run build:ui && forge deploy"
+  },
+  "dependencies": {
+    "@forge/api": "^8.3.0",
+    "@forge/events": "^3.0.8",
+    "@forge/kvs": "^2.1.0",
+    "@forge/resolver": "^2.0.1",
+    "@snjsm/atlassian": "0.1.0",
+    "@snjsm/builder": "0.1.0",
+    "@snjsm/model": "0.1.0",
+    "@snjsm/workflow": "0.1.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@forge/bridge": "^7.2.0",
+    "@forge/manifest": "^13.7.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^7.0.0"
+  }
+}

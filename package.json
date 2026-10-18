@@ -2,9 +2,10 @@
   "name": "forge-sn-jsm-migration-assessment",
   "version": "0.1.0",
   "private": true,
-  "description": "Outcome-driven ServiceNow → Atlassian (JSM) assessment, redesign and build toolkit",
+  "description": "Outcome-driven ServiceNow \u2192 Atlassian (JSM) assessment, redesign and build toolkit",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "engines": {
     "node": ">=22"
@@ -20,10 +21,11 @@
     "sn:check": "tsx packages/collector/scripts/check-connection.ts",
     "ref:capture": "tsx packages/tools/scripts/capture-reference.ts",
     "api:spike": "tsx packages/tools/scripts/api-spike.ts",
-    "typecheck:all": "tsc -b && tsc -p tsconfig.check.json",
+    "typecheck:all": "tsc -b && tsc -p tsconfig.check.json && npm run -s typecheck -w @snjsm/workbench",
     "analyse": "tsx packages/analyser/scripts/analyse.ts",
     "jsm": "tsx packages/mcp-server/scripts/jsm.ts",
-    "mcp": "tsx packages/mcp-server/src/server.ts"
+    "mcp": "tsx packages/mcp-server/src/server.ts",
+    "workbench:build": "tsc -b && npm run -s build:ui -w @snjsm/workbench"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
