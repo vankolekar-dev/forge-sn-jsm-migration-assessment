@@ -22,7 +22,9 @@ describe('Forge app wiring', () => {
     for (const h of handlers) expect(index).toMatch(new RegExp(`export (const|async function|function) ${h}\\b`));
     expect(manifest).toMatch(/queue: workbench-jobs/);
     expect(readFileSync(join(app, 'src/forge.ts'), 'utf8')).toMatch(/new Queue\(\{ key: 'workbench-jobs' \}\)/);
-    expect(manifest).toMatch(/timeoutSeconds: 900/);
+    // Only consumer (and scheduled trigger) functions may set a timeout; the job function is the consumer's.
+    expect([...manifest.matchAll(/- key: (\w+)\n\s+handler: [\w.]+\n\s+timeoutSeconds: (\d+)/g)].map((m) => [m[1], m[2]])).toEqual([['job', '900']]);
+    expect(manifest).toMatch(/queue: workbench-jobs\n\s+function: job/);
   });
 
   it('defines every resolver function the UI calls', () => {

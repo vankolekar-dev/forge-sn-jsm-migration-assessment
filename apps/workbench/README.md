@@ -44,7 +44,7 @@ workbench shows the acceptance plan.
 ## Deploy
 
 ```bash
-eval "$(fnm env)"; fnm use          # Node 22
+eval "$(fnm env)"; fnm use 22       # Node 22 (Forge CLI supports 22 or 24)
 forge login                        # once, with an Atlassian API token (you run this yourself)
 cd apps/workbench
 forge register                     # once: writes the real app.id into manifest.yml

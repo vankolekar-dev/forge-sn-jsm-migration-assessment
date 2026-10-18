@@ -19,7 +19,6 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-      timeoutSeconds: 25
     - key: job
       handler: index.consumer
       timeoutSeconds: 900
@@ -53,4 +52,4 @@ app:
     name: nodejs22.x
     memoryMB: 1024
     architecture: arm64
-  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  id: ari:cloud:ecosystem::app/f7a9808e-cf87-42b4-a0e0-69057b4bfad4
