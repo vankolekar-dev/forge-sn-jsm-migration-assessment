@@ -135,9 +135,22 @@ items `atl-<site>-email` / `atl-<site>-api-token`.
 
 ### Use from Rovo CLI (MCP)
 
-The tools are `blueprint_summary`, `build_plan`, `build_apply`, `build_manual_steps`, `build_confirm_manual`,
-`build_verify`, `build_status` and `build_work_breakdown`. Only `build_apply` writes to a site, and only behind the
-gates above. Run `npm run build` first, then register the server. For example, in `.mcp.json`:
+The tools are:
+- **Blueprint:** `blueprint_summary` and `blueprint_set_space`
+- **Sign-off:** `signoff_review` and `signoff_record`
+- **Build:** `build_plan`, `build_apply`, `build_manual_steps`, `build_confirm_manual`, `build_verify`, `build_status`
+  and `build_work_breakdown`
+- **Acceptance:** `acceptance_plan`, `acceptance_run` and `acceptance_cleanup`
+
+Only `build_apply`, `acceptance_run` and `acceptance_cleanup` write to a site, and each needs a phrase the person
+types:
+- `APPLY <planHash> TO <site>`
+- `TEST <runHash> ON <site>`
+- `CLEANUP <runId> ON <site>`
+
+The sign-off is gated the same way, with `SIGN OFF <signHash> FOR <blueprintId>`.
+
+Run `npm run build` first, then register the server. For example, in `.mcp.json`:
 
 ```json
 {
@@ -154,6 +167,21 @@ gates above. Run `npm run build` first, then register the server. For example, i
   }
 }
 ```
+
+### Rovo skill: `sn-jsm-outcome-migration`
+
+`.rovo/skills/sn-jsm-outcome-migration/SKILL.md` is a project skill. Rovo CLI picks it up when it runs in this repo.
+It walks a person through the stages:
+
+`analyse → target → sign-off → dry-run/apply → guided steps → verify → acceptance`
+
+It works like this:
+- It uses the MCP tools above, or `npm run jsm` when the server is not registered.
+- It stops at every gate until the person types the phrase.
+- It never calls Atlassian or ServiceNow APIs itself.
+
+`packages/mcp-server/test/skill.test.ts` fails if the skill names a tool or CLI command that does not exist, misses a
+tool, or shows a gate phrase the service would refuse.
 
 ## Data handling
 
