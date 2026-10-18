@@ -30,6 +30,12 @@ const FUNCTIONS: Record<string, Fn> = {
   confirmManual: (wb, c, p) => wb.confirmManual(c, p),
   report: (wb, c, p) => wb.report(c, p),
   acceptancePlan: (wb, c, p) => wb.acceptancePlan(c, p),
+  connection: (wb, c) => wb.connection(c),
+  saveConnection: (wb, c, p) => wb.saveConnection(c, p),
+  removeConnection: (wb, c) => wb.removeConnection(c),
+  testConnection: (wb, c) => wb.testConnection(c),
+  startCollection: (wb, c, p) => wb.startCollection(c, p),
+  resumeCollection: (wb, c, p) => wb.resumeCollection(c, p),
 };
 
 const resolver = new Resolver();
@@ -48,7 +54,10 @@ for (const [name, fn] of Object.entries(FUNCTIONS)) {
 }
 export const handler = resolver.getDefinitions();
 
-/** Queue consumer for dry-run, verify and apply jobs. Never throws, so the platform never re-runs an apply. */
+/**
+ * Queue consumer for dry-run, verify, apply and ServiceNow collection steps. Never throws, so the platform never
+ * re-runs an apply; a retried collection step simply continues from its checkpoint.
+ */
 export async function consumer(event: AsyncEvent<JobMessage>, context: Ctx) {
   try {
     const site = await siteOf(context.installContext);

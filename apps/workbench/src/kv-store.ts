@@ -14,6 +14,10 @@ export interface Kv {
   deleteMany(keys: string[]): Promise<void>;
   /** Keys starting with prefix (all pages), sorted. */
   keys(prefix: string): Promise<string[]>;
+  /** Encrypted secret storage (Forge KVS secrets): never listed, never returned to the browser. */
+  getSecret<T>(key: string): Promise<T | undefined>;
+  setSecret(key: string, value: unknown): Promise<void>;
+  deleteSecret(key: string): Promise<void>;
 }
 
 /** Forge KVS: keys match [a-zA-Z0-9:._\s-#]+ and are at most 500 characters; values at most 240 KiB. */
@@ -161,4 +165,8 @@ export class MemoryKv implements Kv {
   async delete(key: string) { this.ops++; this.check(key); this.data.delete(key); }
   async deleteMany(keys: string[]) { for (const k of keys) await this.delete(k); }
   async keys(prefix: string) { return [...this.data.keys()].filter((k) => k.startsWith(prefix) && this.live(k)).sort(); }
+  readonly secrets = new Map<string, unknown>();
+  async getSecret<T>(key: string) { this.check(key); return structuredClone(this.secrets.get(key)) as T | undefined; }
+  async setSecret(key: string, value: unknown) { this.check(key, value); this.secrets.set(key, structuredClone(value)); }
+  async deleteSecret(key: string) { this.check(key); this.secrets.delete(key); }
 }

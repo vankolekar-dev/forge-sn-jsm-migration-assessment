@@ -1,7 +1,8 @@
-import api, { assumeTrustedRoute, route } from '@forge/api';
+import api, { assumeTrustedRoute, fetch as forgeFetch, route } from '@forge/api';
 import { kvs, WhereConditions } from '@forge/kvs';
 import { Queue } from '@forge/events';
 import { normaliseSite } from '@snjsm/atlassian';
+import type { HttpFetch } from '@snjsm/collector';
 import type { Kv } from './kv-store';
 import { cloudIdOf, ForgeSiteClient, type ProductRequest } from './transport';
 import type { Actor, Caller, JobMessage, Platform } from './workbench';
@@ -43,6 +44,15 @@ export const forgeKv: Kv = {
     } while (cursor);
     return out.sort();
   },
+  getSecret: <T>(key: string) => kvs.getSecret<T>(key),
+  setSecret: (key, value) => kvs.setSecret(key, value),
+  deleteSecret: (key) => kvs.deleteSecret(key),
+};
+
+/** Egress to ServiceNow (allowed hosts are fixed in the manifest; the collector also validates the instance URL). */
+const snFetch: HttpFetch = async (url, init) => {
+  const res = await forgeFetch(url, { method: init.method, headers: init.headers, ...(init.body !== undefined ? { body: init.body } : {}), redirect: 'manual' });
+  return { status: res.status, headers: { get: (n: string) => res.headers.get(n) }, text: () => res.text() };
 };
 
 /** requestJira as the actor, on a path the transport already validated. */
@@ -71,6 +81,7 @@ export async function siteOf(installContext: unknown): Promise<Omit<Caller, 'acc
 export function platformFor(site: Omit<Caller, 'accountId'>, userActor?: Actor): Platform {
   return {
     kv: forgeKv,
+    snFetch,
     client: (actor, readOnly) => new ForgeSiteClient({ siteUrl: site.siteUrl, cloudId: site.cloudId, request: productRequest(actor), readOnly }),
     async isAdmin() {
       if (!userActor || userActor.as !== 'user') return false;

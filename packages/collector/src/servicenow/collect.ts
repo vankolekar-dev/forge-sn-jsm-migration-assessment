@@ -103,68 +103,178 @@ export interface CollectOptions {
   onProgress?: (msg: string) => void;
 }
 
-export async function collectLive(client: ServiceNowClient, opts: CollectOptions = {}): Promise<Snapshot> {
-  const usageDays = opts.usageDays ?? 365;
+/**
+ * Where a collection stands, so it can stop and resume (e.g. across Forge function invocations, each with a time
+ * limit). Plain JSON: persist it after every checkpoint.
+ */
+export interface CollectCursor {
+  phase: 'info' | 'pulls' | 'aggregates' | 'fill' | 'done';
+  /** Index into the pulls, aggregates or fill plan for the current phase. */
+  index: number;
+  /** Pulls: last sys_id read from the current table, and how many records so far. */
+  startAfter?: string;
+  fetched: number;
+  /** Fill: the planned classes and attributes (fixed when the phase starts), and the attribute reached. */
+  fill?: { cls: string; total: number; attrs: string[] }[];
+  attr: number;
+  fillRows: { group: Record<string, string>; count: number }[];
+  release?: string;
+  /** Pages handed to the sink (also the next page number). */
+  pages: number;
+  warnings: string[];
+}
+
+/** Where collected data goes. Pages are numbered, so writing the same page again (after a crash) is harmless. */
+export interface CollectSink {
+  page(n: number, records: SnRecord[]): Promise<void>;
+  aggregate(a: Aggregate): Promise<void>;
+  /** Fill-rate planning reads the dictionary pulled earlier and the CI population aggregate. */
+  records(table: string): Promise<SnRecord[]>;
+  aggregateById(id: string): Promise<Aggregate | undefined>;
+}
+
+/**
+ * Only problems with one table (missing, not readable) are recorded as warnings and skipped. Anything that affects
+ * every request (network, rejected token, rate limit or server errors after retries) stops the run at its last
+ * checkpoint instead, so a collection is never silently incomplete; resume it once the instance is back.
+ */
+export function isTableProblem(e: unknown): boolean {
+  return e instanceof ServiceNowError && (e.status === 400 || e.status === 403 || e.status === 404);
+}
+
+export const startCursor = (): CollectCursor => ({ phase: 'info', index: 0, fetched: 0, attr: 0, fillRows: [], pages: 0, warnings: [] });
+
+export interface StepOptions extends CollectOptions {
+  /** Checked between requests: return true to stop at the next checkpoint (the cursor says where to resume). */
+  shouldStop?: () => boolean;
+  /** Called with the cursor after every checkpoint (persist it). */
+  checkpoint?: (cursor: CollectCursor) => Promise<void>;
+}
+
+/**
+ * Run the collection plan from a cursor until it is done or shouldStop() says to pause. Read-only; resumable at
+ * every page, aggregate and count. collectLive() is this run to the end with an in-memory sink.
+ */
+export async function collectSteps(client: ServiceNowClient, from: CollectCursor, sink: CollectSink, opts: StepOptions = {}): Promise<CollectCursor> {
+  const c: CollectCursor = structuredClone(from);
   const log = opts.onProgress ?? (() => {});
   const max = opts.maxRecordsPerTable ?? 20000;
-  const warnings: string[] = [];
-  const records: SnRecord[] = [];
-  const info = await client.instanceInfo().catch(() => ({} as { build?: string; war?: string }));
+  const pulls = opts.pulls ?? STANDARD_PULLS;
+  const aggs = opts.aggregates ?? standardAggregates(opts.usageDays ?? 365);
+  const stop = opts.shouldStop ?? (() => false);
+  const save = async () => { await opts.checkpoint?.(structuredClone(c)); };
 
-  for (const p of opts.pulls ?? STANDARD_PULLS) {
-    let n = 0;
+  if (c.phase === 'info') {
+    c.release = (await client.instanceInfo().catch(() => ({} as { build?: string }))).build;
+    c.phase = 'pulls'; c.index = 0;
+    await save();
+  }
+
+  while (c.phase === 'pulls' && c.index < pulls.length) {
+    if (stop()) return c;
+    const p = pulls[c.index]!;
+    let finished = true;
     try {
-      for await (const page of client.iterateTable(p.table, { query: p.query, fields: p.fields, displayValue: true, limit: max })) {
+      for await (const page of client.iterateTable(p.table, { query: p.query, fields: p.fields, displayValue: true, limit: max - c.fetched, ...(c.startAfter ? { startAfter: c.startAfter } : {}) })) {
         // Rows carry sys_class_name; keep it when the collector models that class, otherwise use the pulled table.
-        for (const r of page.records) records.push(isRecordTable(r.table) ? r : { ...r, table: p.table });
-        n = page.fetched;
+        await sink.page(c.pages, page.records.map((r) => (isRecordTable(r.table) ? r : { ...r, table: p.table })));
+        c.pages++;
+        c.fetched += page.records.length;
+        c.startAfter = page.lastSysId;
+        await save();
+        if (stop() && c.fetched < max) { finished = false; break; }
       }
-      if (n >= max) warnings.push(`${p.table}: stopped at ${max} records (raise maxRecordsPerTable to read more).`);
-      log(`${p.table}: ${n}`);
+      if (!finished) return c;
+      if (c.fetched >= max) c.warnings.push(`${p.table}: stopped at ${max} records (raise maxRecordsPerTable to read more).`);
+      log(`${p.table}: ${c.fetched}`);
     } catch (e) {
+      if (!isTableProblem(e)) throw e;
       const msg = e instanceof ServiceNowError && e.status === 400 ? `${p.table}: not available on this instance` : `${p.table}: ${(e as Error).message}`;
-      warnings.push(msg);
+      c.warnings.push(msg);
       log(msg);
     }
+    c.index++; c.fetched = 0; delete c.startAfter;
+    await save();
   }
+  if (c.phase === 'pulls') { c.phase = 'aggregates'; c.index = 0; await save(); }
 
-  const aggregates: Aggregate[] = [];
-  for (const a of opts.aggregates ?? standardAggregates(usageDays)) {
+  while (c.phase === 'aggregates' && c.index < aggs.length) {
+    if (stop()) return c;
+    const a = aggs[c.index]!;
     try {
-      aggregates.push({ ...a, rows: await client.countBy(a.table, a.groupBy, a.query) });
+      await sink.aggregate({ ...a, rows: await client.countBy(a.table, a.groupBy, a.query) });
       log(`aggregate ${a.id}`);
     } catch (e) {
-      aggregates.push({ ...a, rows: [], error: (e as Error).message.slice(0, 200) });
-      warnings.push(`aggregate ${a.id}: ${(e as Error).message.slice(0, 200)}`);
+      if (!isTableProblem(e)) throw e;
+      await sink.aggregate({ ...a, rows: [], error: (e as Error).message.slice(0, 200) });
+      c.warnings.push(`aggregate ${a.id}: ${(e as Error).message.slice(0, 200)}`);
     }
+    c.index++;
+    await save();
   }
 
-  // Fill rates: count non-empty values per attribute on the most populated classes.
-  const fr = opts.fillRate ?? { maxClasses: 15, maxAttributesPerClass: 25 };
-  const pop = aggregates.find((a) => a.id === 'cmdb.ci-by-class')?.rows ?? [];
-  if (fr.maxClasses > 0 && pop.length) {
-    const dict = records.filter((r) => r.table === 'sys_dictionary');
-    const classes = [...pop].sort((a, b) => b.count - a.count).slice(0, fr.maxClasses);
-    for (const c of classes) {
-      const cls = c.group['sys_class_name'];
-      if (!cls || c.count === 0) continue;
-      const own = dict.filter((d) => d.fields['name'] === cls && d.fields['element'] && d.fields['internal_type'] !== 'collection').map((d) => d.fields['element']!);
-      const attrs = [...new Set([...KEY_CI_ATTRIBUTES, ...own])].slice(0, fr.maxAttributesPerClass);
-      const rows = [];
-      for (const attr of attrs) {
-        try { rows.push({ group: { attribute: attr }, count: await client.count(cls, `${attr}ISNOTEMPTY`) }); } catch { /* attribute not on this class */ }
+  if (c.phase === 'aggregates') {
+    // Fill rates: count non-empty values per attribute on the most populated classes.
+    const fr = opts.fillRate ?? { maxClasses: 15, maxAttributesPerClass: 25 };
+    const pop = (await sink.aggregateById('cmdb.ci-by-class'))?.rows ?? [];
+    c.fill = [];
+    if (fr.maxClasses > 0 && pop.length) {
+      const dict = await sink.records('sys_dictionary');
+      for (const cl of [...pop].sort((a, b) => b.count - a.count).slice(0, fr.maxClasses)) {
+        const cls = cl.group['sys_class_name'];
+        if (!cls || cl.count === 0) continue;
+        const own = dict.filter((d) => d.fields['name'] === cls && d.fields['element'] && d.fields['internal_type'] !== 'collection').map((d) => d.fields['element']!);
+        c.fill.push({ cls, total: cl.count, attrs: [...new Set([...KEY_CI_ATTRIBUTES, ...own])].slice(0, fr.maxAttributesPerClass) });
       }
-      aggregates.push({ id: `cmdb.fill.${cls}`, table: cls, groupBy: ['attribute'], purpose: `fill rate per attribute (of ${c.count})`, rows: [{ group: { attribute: '__total' }, count: c.count }, ...rows] });
-      log(`fill rate ${cls}: ${rows.length} attributes`);
     }
+    c.phase = 'fill'; c.index = 0; c.attr = 0; c.fillRows = [];
+    await save();
   }
 
+  while (c.phase === 'fill' && c.index < (c.fill?.length ?? 0)) {
+    const f = c.fill![c.index]!;
+    while (c.attr < f.attrs.length) {
+      if (stop()) return c;
+      const attr = f.attrs[c.attr]!;
+      try { c.fillRows.push({ group: { attribute: attr }, count: await client.count(f.cls, `${attr}ISNOTEMPTY`) }); } catch (e) { if (!isTableProblem(e)) throw e; /* attribute not on this class */ }
+      c.attr++;
+      await save();
+    }
+    await sink.aggregate({ id: `cmdb.fill.${f.cls}`, table: f.cls, groupBy: ['attribute'], purpose: `fill rate per attribute (of ${f.total})`, rows: [{ group: { attribute: '__total' }, count: f.total }, ...c.fillRows] });
+    log(`fill rate ${f.cls}: ${c.fillRows.length} attributes`);
+    c.index++; c.attr = 0; c.fillRows = [];
+    await save();
+  }
+  if (c.phase === 'fill') { c.phase = 'done'; await save(); }
+  return c;
+}
+
+/** The snapshot for a finished collection, from its cursor and what the sink collected. */
+export function snapshotOf(instanceUrl: string, c: CollectCursor, records: SnRecord[], aggregates: Aggregate[], usageDays: number, capturedAt = new Date().toISOString()): Snapshot {
+  const host = instanceUrl.replace(/^https:\/\//, '');
   return {
-    source: { kind: 'servicenow-live', name: client.instanceUrl.replace(/^https:\/\//, ''), instance: client.instanceUrl.replace(/^https:\/\//, ''), release: info.build, capturedAt: new Date().toISOString() },
+    source: { kind: 'servicenow-live', name: host, instance: host, release: c.release, capturedAt },
     records,
     aggregates,
-    warnings,
+    warnings: [...c.warnings],
     stats: tableStats(records),
     usageDays,
   };
+}
+
+/** In-memory sink (CLI and tests). */
+export class MemorySink implements CollectSink {
+  readonly pages = new Map<number, SnRecord[]>();
+  readonly aggregates: Aggregate[] = [];
+  async page(n: number, records: SnRecord[]) { this.pages.set(n, records); }
+  async aggregate(a: Aggregate) { const i = this.aggregates.findIndex((x) => x.id === a.id); if (i >= 0) this.aggregates[i] = a; else this.aggregates.push(a); }
+  async records(table: string) { return this.all().filter((r) => r.table === table); }
+  async aggregateById(id: string) { return this.aggregates.find((a) => a.id === id); }
+  all(): SnRecord[] { return [...this.pages.keys()].sort((a, b) => a - b).flatMap((n) => this.pages.get(n)!); }
+}
+
+export async function collectLive(client: ServiceNowClient, opts: CollectOptions = {}): Promise<Snapshot> {
+  const sink = new MemorySink();
+  const c = await collectSteps(client, startCursor(), sink, opts);
+  return snapshotOf(client.instanceUrl, c, sink.all(), sink.aggregates, opts.usageDays ?? 365);
 }

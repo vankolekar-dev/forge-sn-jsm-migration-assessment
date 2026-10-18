@@ -89,7 +89,7 @@ export class ServiceNowClient {
       try {
         return { json: raw ? JSON.parse(raw) : {}, headers: res.headers };
       } catch {
-        throw new ServiceNowError(`ServiceNow returned non-JSON for ${path.split('?')[0]}`, res.status);
+        throw new ServiceNowError(`ServiceNow returned a web page instead of JSON for ${path.split('?')[0]}. Is the instance awake? (developer instances hibernate when idle)`, res.status);
       }
     }
   }

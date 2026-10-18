@@ -1,7 +1,7 @@
 # ServiceNow → JSM workbench (Forge app for Jira)
 
-A Jira app for the build half of the toolkit: upload a Migration Blueprint (from `npm run analyse`), review and sign
-off its outcomes, dry-run, apply behind the typed gate, work through guided steps and verify. It runs the same
+A Jira app for the build half of the toolkit: upload a Migration Blueprint (from `npm run analyse`) or collect one
+straight from ServiceNow over OAuth, review and sign off its outcomes, dry-run, apply behind the typed gate, work through guided steps and verify. It runs the same
 workflow and gates as the CLI and the MCP server (`@snjsm/workflow`); only storage, identity and transport differ.
 
 | Part | What it does |
@@ -30,6 +30,34 @@ Identity is the Forge `accountId` and the site comes from the install context, s
 - **Apply**: `APPLY <planHash> TO <site>` for a dry-run produced here. The phrase, the designation and the sign-off
   are checked when the job is queued and again when it runs; the engine repeats the dry-run and refuses if it changed.
 - Phrases are typed (pasting is disabled in the dialog); the server decides, not the UI.
+
+## Connect to ServiceNow (instead of uploading)
+
+Jira admins can collect from a ServiceNow instance and analyse it in the app (tab **Connect to ServiceNow**). It is
+read-only: the Table and Aggregate APIs plus the OAuth token endpoint, for configuration, catalog, workflow and CMDB
+metadata and usage counts; CI records are not read. Egress is limited to `*.service-now.com` and
+`*.servicenowservices.com` (backend only).
+
+In ServiceNow: **System OAuth → Application Registry → New → Create an OAuth API endpoint for external clients**,
+then note the client id and secret. Pick a grant:
+
+- **Client credentials**: set the system property `glide.oauth.inbound.client.credential.grant_type.enabled` to
+  `true` and give the registry entry an OAuth application user with read roles (e.g. `snc_read_only` plus read on
+  the CMDB and catalog tables).
+- **Password**: a dedicated integration user (web service access only) with the same read roles; enter its user name
+  and password.
+
+The client secret and password are kept in Forge encrypted secret storage, never returned to the browser, and must be
+entered again if the instance, client id or user changes. **Test connection** checks the token, the instance version,
+a Table API read and an Aggregate API count separately, so a missing role is obvious.
+
+**Collect & analyse** runs as a chain of queue steps of up to 10 minutes each, checkpointing after every page and
+count, so large instances work within the 900 s limit. Tables that are missing or unreadable are recorded as
+warnings; anything that affects every request (network, rejected token, rate limits or 5xx after retries, an HTML
+page from a hibernating developer instance) stops the collection at its last checkpoint instead, so a blueprint is
+never silently incomplete; **Resume** continues from there. A collection with no progress for 20 minutes is marked
+interrupted and can be resumed. The result is a blueprint like an upload: not signed off, and replacing an existing
+one requires the replace option.
 
 ## Jobs
 
@@ -62,8 +90,9 @@ These depend on the platform and are not covered by the local tests (which use a
 1. Assets through `requestJira` at `/jsm/assets/workspace/<id>/v1/...` with the `cmdb` scopes.
 2. `asUser(accountId)` inside the queue consumer (otherwise switch Settings → Jobs act as → the app).
 3. Project creation and request-type APIs as the user/app with `leadAccountId` set to the person who queued the job.
-4. Bundling the workspace packages (`@snjsm/*` → `packages/*/dist`) with `forge deploy`.
-5. Real KVS behaviour: `FAIL_IF_EXISTS` lock conflicts, TTL expiry, and read/write time for a 2.4 MB blueprint.
+4. Egress to `*.service-now.com` with `redirect: 'manual'`, and KVS secret storage, from the resolver and the consumer.
+5. Bundling the workspace packages (`@snjsm/*` → `packages/*/dist`) with `forge deploy`.
+6. Real KVS behaviour: `FAIL_IF_EXISTS` lock conflicts, TTL expiry, and read/write time for a 2.4 MB blueprint.
 
 Automation rules cannot be looked up from Forge (api.atlassian.com), so they stay guided steps in the workbench.
 

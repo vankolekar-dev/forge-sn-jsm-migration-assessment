@@ -1,17 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { snapshotFromXml } from '@snjsm/collector';
+import { FakeServiceNow, snapshotFromXml, type HttpFetch } from '@snjsm/collector';
 import { analyse } from '@snjsm/analyser';
 import { UnreachableError } from '@snjsm/atlassian';
 import { FakeSite, isSignedOff, type SiteApi } from '@snjsm/builder';
 import type { Blueprint } from '@snjsm/model';
 import { confirmPhrase, parseBlueprint, signOffPhrase } from '@snjsm/workflow';
 import { CHUNK_CHARS, MemoryKv } from '../src/kv-store';
-import { designatePhrase, Workbench, type Actor, type Caller, type Job, type JobMessage } from '../src/workbench';
+import { COLLECT, designatePhrase, Workbench, type Actor, type Caller, type Job, type JobMessage } from '../src/workbench';
 
 const xml = readFileSync(join(__dirname, '../../../packages/collector/test/fixtures/enterprise-update-set.xml'), 'utf8');
-const base = analyse(snapshotFromXml([{ name: 'enterprise.xml', xml }]), { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
+const snap = snapshotFromXml([{ name: 'enterprise.xml', xml }]);
+const base = analyse(snap, { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
 const signedElsewhere = (bp: Blueprint, at = '2026-01-02T00:00:00Z'): Blueprint => ({ ...bp, decisions: [...bp.decisions, { id: 'd.sign-off.cli', at, by: 'someone', subject: { kind: 'blueprint', id: bp.id }, action: 'sign-off' }] });
 
 /** A FakeSite seen through Forge: api.atlassian.com product APIs (Automation) are unreachable. */
@@ -19,9 +20,17 @@ function forgeView(c: SiteApi): SiteApi {
   return { ...c, call: async (m: string, url: string) => { throw new UnreachableError(m, url.replace(/^https:\/\/[^/]+/, ''), 'test'); } } as SiteApi;
 }
 
-function setup() {
+function setup(opts: { collectBudgetMs?: number; fakeClock?: boolean } = {}) {
   const site = new FakeSite();
   const kv = new MemoryKv();
+  // ServiceNow: a fake instance; every request moves the clock on a second, so collection budgets run out.
+  const sn = new FakeServiceNow(snap.records);
+  const clock = { t: Date.parse('2026-03-01T00:00:00Z'), down: false };
+  const snFetch: HttpFetch = async (url, init) => {
+    clock.t += 1000;
+    if (clock.down) throw new TypeError('fetch failed');
+    return sn.fetch(url, init);
+  };
   const queue: { msg: JobMessage; key: string }[] = [];
   const actors: Actor[] = [];
   const who = { admin: true };
@@ -30,7 +39,10 @@ function setup() {
     client: (actor, ro) => { actors.push(actor); return forgeView(site.client(ro)); },
     isAdmin: async () => who.admin,
     enqueue: async (msg, key) => { queue.push({ msg, key }); },
-  });
+    snFetch,
+    sleep: async () => {},
+    ...(opts.fakeClock ? { now: () => new Date(clock.t) } : {}),
+  }, opts);
   const admin: Caller = { accountId: 'acc-admin', siteUrl: site.siteUrl, cloudId: '11111111-2222-3333-4444-555555555555' };
   const signer: Caller = { ...admin, accountId: 'acc-signer' };
   const outsider: Caller = { ...admin, accountId: 'acc-outsider' };
@@ -49,7 +61,7 @@ function setup() {
     if (!q) throw new Error('nothing queued');
     return (await wb.runJob(q.msg, { siteUrl: site.siteUrl, cloudId: admin.cloudId }, retry))!;
   };
-  return { site, kv, wb, queue, actors, admin, signer, outsider, as, upload, drain };
+  return { site, kv, sn, clock, wb, queue, actors, admin, signer, outsider, as, upload, drain };
 }
 
 describe('workbench', () => {
@@ -188,5 +200,125 @@ describe('workbench', () => {
     now += 21 * 60_000;
     await wb2.startJob(t.as(t.admin), { blueprintId: base.id, op: 'verify' });
     expect((await wb2.job(t.as(t.admin), { blueprintId: base.id, jobId: stuck.id }) as Job).status).toBe('failed');
+  });
+});
+
+describe('ServiceNow connection', () => {
+  const conn = (t: ReturnType<typeof setup>, extra: Record<string, unknown> = {}) => ({
+    instance: 'dev12345.service-now.com', grant: 'client_credentials', clientId: t.sn.creds.clientId, clientSecret: t.sn.creds.clientSecret, customer: 'Fixture Co', ...extra,
+  });
+  /** Run queued steps until the chain ends; returns the last job and how many invocations it took. */
+  const drainAll = async (t: ReturnType<typeof setup>) => {
+    let last: Job | undefined; let steps = 0;
+    while (t.queue.length) { last = await t.drain(); steps++; }
+    return { last: last!, steps };
+  };
+
+  it('stores secrets only in secret storage, never returns them, and reuses them only for the same client', async () => {
+    const t = setup();
+    await expect(t.wb.saveConnection(t.as(t.signer), conn(t))).rejects.toThrow(/only Jira administrators/);
+    await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { instance: 'evil.example.com' }))).rejects.toThrow(/service-now\.com/);
+    await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { clientSecret: '' }))).rejects.toThrow(/client secret/);
+    await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { grant: 'password' }))).rejects.toThrow(/integration user name/);
+    const saved = await t.wb.saveConnection(t.as(t.admin), conn(t));
+    expect(saved).toMatchObject({ connection: { instance: t.sn.instanceUrl, usageDays: 365 }, hasClientSecret: true, hasPassword: false });
+    expect(JSON.stringify(saved)).not.toContain(t.sn.creds.clientSecret);
+    expect(JSON.stringify([...t.kv.data.values()])).not.toContain(t.sn.creds.clientSecret);
+
+    // Same client, secret left blank: kept. A different client id needs the secret again.
+    expect((await t.wb.saveConnection(t.as(t.admin), conn(t, { clientSecret: undefined, usageDays: 30 }))).connection).toMatchObject({ usageDays: 30 });
+    await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { clientSecret: undefined, clientId: 'other' }))).rejects.toThrow(/client secret/);
+
+    await t.wb.removeConnection(t.as(t.admin));
+    expect(await t.wb.connection(t.as(t.admin))).toMatchObject({ connection: null, hasClientSecret: false });
+    expect(t.kv.secrets.size).toBe(0);
+  });
+
+  it('tests the connection step by step and explains a refused grant without echoing secrets', async () => {
+    const t = setup();
+    await t.wb.saveConnection(t.as(t.admin), conn(t));
+    const ok = await t.wb.testConnection(t.as(t.admin));
+    expect(ok).toMatchObject({ ok: true, release: 'Xanadu' });
+    expect(ok.checks.map((c) => c.name)).toEqual(['OAuth token', 'Instance version (sys_properties)', 'Catalog items (Table API)', 'Counts (Aggregate API)']);
+    expect((await t.wb.connection(t.as(t.admin))).connection?.lastTest).toMatchObject({ ok: true });
+    expect(t.sn.requests.every((r) => r.method === 'GET' || r.path === '/oauth_token.do')).toBe(true);
+
+    await t.wb.saveConnection(t.as(t.admin), conn(t, { clientSecret: 'wrong-secret-xyz' }));
+    const bad = await t.wb.testConnection(t.as(t.admin));
+    expect(bad.ok).toBe(false);
+    expect(bad.checks).toHaveLength(1);
+    expect(JSON.stringify(bad)).not.toContain('wrong-secret-xyz');
+
+    // Password grant, for instances that do not allow client credentials.
+    t.sn.allowClientCredentials = false;
+    await t.wb.saveConnection(t.as(t.admin), conn(t, { grant: 'password', username: t.sn.creds.username, password: t.sn.creds.password }));
+    expect((await t.wb.testConnection(t.as(t.admin))).ok).toBe(true);
+  });
+
+  it('collects across many invocations from checkpoints, then analyses into a blueprint that still needs sign-off', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), conn(t, { usageDays: 30 }));
+    const before = await t.wb.connection(t.as(t.admin));
+    const job = await t.wb.startCollection(t.as(t.admin), {});
+    await expect(t.wb.startCollection(t.as(t.admin), {})).rejects.toThrow(/already queued/);
+    const { last, steps } = await drainAll(t);
+    expect(steps).toBeGreaterThan(3);
+    expect(last).toMatchObject({ id: job.id, status: 'done', result: { blueprintId: before.nextBlueprintId, replaced: false } });
+    expect(t.sn.requests.every((r) => r.method === 'GET' || r.path === '/oauth_token.do')).toBe(true);
+
+    const id = before.nextBlueprintId!;
+    const bp = parseBlueprint((await t.wb.store.read(`blueprints/${id}.json`))!, 'x');
+    expect(bp.outcomes.length).toBeGreaterThan(0);
+    expect(isSignedOff(bp)).toBe(false);
+    expect((await t.wb.bootstrap(t.as(t.admin))).blueprints.find((b: { id: string }) => b.id === id)).toMatchObject({ source: `ServiceNow ${new URL(t.sn.instanceUrl).host}` });
+    expect(await t.wb.store.list(`collections/${job.id}/p/`)).toEqual([]);
+
+    // A stale or duplicated step message does nothing.
+    expect(await t.wb.runJob({ jobId: job.id, blueprintId: COLLECT, step: 1 }, { siteUrl: t.site.siteUrl, cloudId: t.admin.cloudId })).toMatchObject({ status: 'done' });
+    expect(t.queue).toHaveLength(0);
+
+    // Collecting the same blueprint again needs replace.
+    await expect(t.wb.startCollection(t.as(t.admin), {})).rejects.toThrow(/already in the workbench/);
+    await t.wb.startCollection(t.as(t.admin), { replace: true });
+    expect((await drainAll(t)).last).toMatchObject({ status: 'done', result: { replaced: true } });
+  });
+
+  it('resumes a failed collection from its last checkpoint without reading everything again', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), conn(t, { usageDays: 30 }));
+    const job = await t.wb.startCollection(t.as(t.admin), {});
+    await t.drain(); await t.drain();
+    t.clock.down = true;
+    const failed = await t.drain();
+    expect(failed).toMatchObject({ status: 'failed' });
+    expect(failed.error).toMatch(/resumed/);
+    expect(t.queue).toHaveLength(0);
+    await expect(t.wb.resumeCollection(t.as(t.signer), { jobId: job.id })).rejects.toThrow(/only Jira administrators/);
+
+    t.clock.down = false;
+    const tokenAndInfo = t.sn.requests.filter((r) => r.path.includes('sys_properties')).length;
+    await t.wb.resumeCollection(t.as(t.admin), { jobId: job.id });
+    await expect(t.wb.resumeCollection(t.as(t.admin), { jobId: job.id })).rejects.toThrow(/only a failed collection/);
+    expect((await drainAll(t)).last).toMatchObject({ id: job.id, status: 'done' });
+    expect(t.sn.requests.filter((r) => r.path.includes('sys_properties')).length).toBe(tokenAndInfo); // the info phase is not repeated
+  });
+});
+
+describe('ServiceNow collection, interrupted', () => {
+  it('marks a collection that stopped making progress as failed, so it can be resumed', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), { instance: 'dev12345.service-now.com', grant: 'client_credentials', clientId: 'client-1', clientSecret: 'secret-1', customer: 'Fixture Co' });
+    const job = await t.wb.startCollection(t.as(t.admin), {});
+    await t.drain();
+    t.queue.length = 0; // the platform lost the next step
+    t.clock.t += 21 * 60_000;
+    const v = await t.wb.connection(t.as(t.admin));
+    expect(v.jobs[0]).toMatchObject({ id: job.id, status: 'failed' });
+    expect(v.jobs[0]!.error).toMatch(/resume/);
+    await t.wb.resumeCollection(t.as(t.admin), { jobId: job.id });
+    let last: Job | undefined;
+    while (t.queue.length) last = await t.drain();
+    expect(last).toMatchObject({ status: 'done' });
+    expect((await t.wb.connection(t.as(t.admin))).jobs[0]!.result).toMatchObject({ blueprintId: v.nextBlueprintId });
   });
 });

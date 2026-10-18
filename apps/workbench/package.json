@@ -15,8 +15,10 @@
     "@forge/events": "^3.0.8",
     "@forge/kvs": "^2.1.0",
     "@forge/resolver": "^2.0.1",
+    "@snjsm/analyser": "0.1.0",
     "@snjsm/atlassian": "0.1.0",
     "@snjsm/builder": "0.1.0",
+    "@snjsm/collector": "0.1.0",
     "@snjsm/model": "0.1.0",
     "@snjsm/workflow": "0.1.0",
     "zod": "^4.1.0"

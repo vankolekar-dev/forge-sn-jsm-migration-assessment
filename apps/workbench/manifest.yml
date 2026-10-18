@@ -28,6 +28,12 @@ resources:
     path: static/ui/dist
 
 permissions:
+  # Read-only ServiceNow collection (Table and Aggregate APIs, OAuth token endpoint) from the backend only.
+  external:
+    fetch:
+      backend:
+        - address: '*.service-now.com'
+        - address: '*.servicenowservices.com'
   scopes:
     - storage:app
     - read:jira-user

@@ -2,6 +2,11 @@ import { z } from 'zod';
 import type { Blueprint } from '@snjsm/model';
 import { isSignedOff, type SiteApi } from '@snjsm/builder';
 import { BuildService, parseBlueprint, safeName, hostOf, type ServiceConfig } from '@snjsm/workflow';
+import {
+  ClientCredentialsProvider, PasswordGrantProvider, STANDARD_PULLS, ServiceNowClient, collectSteps, standardAggregates, normaliseInstanceUrl, snapshotOf, startCursor,
+  type Aggregate, type CollectCursor, type CollectSink, type HttpFetch, type SnRecord, type TokenProvider,
+} from '@snjsm/collector';
+import { analyse, blueprintIdFor } from '@snjsm/analyser';
 import { CHUNK_CHARS, KvStore, type Kv } from './kv-store';
 
 /**
@@ -20,7 +25,7 @@ import { CHUNK_CHARS, KvStore, type Kv } from './kv-store';
 
 export type Role = 'admin' | 'signer' | 'none';
 export type Actor = { as: 'user'; accountId: string } | { as: 'app' };
-export type JobOp = 'dry-run' | 'verify' | 'apply';
+export type JobOp = 'dry-run' | 'verify' | 'apply' | 'collect';
 
 export interface Caller { accountId: string; siteUrl: string; cloudId: string }
 
@@ -36,6 +41,10 @@ const DEFAULT_SETTINGS: Settings = { sandbox: null, signers: [], actAs: 'user' }
 
 export interface Platform {
   kv: Kv;
+  /** Egress to ServiceNow instances (allowed hosts are fixed in the manifest). */
+  snFetch: HttpFetch;
+  /** Rate-limit and back-off waits for ServiceNow calls (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
   /** A client for this site acting as actor. */
   client(actor: Actor, readOnly: boolean): SiteApi;
   /** Whether the calling user is a Jira administrator (checked as that user). */
@@ -47,6 +56,8 @@ export interface Platform {
 
 export interface JobMessage { jobId: string; blueprintId: string; [k: string]: unknown }
 
+export interface Progress { phase: CollectCursor['phase']; index: number; total: number; pages: number; warnings: number; records?: number }
+
 export interface Job {
   id: string; op: JobOp; blueprintId: string; by: string;
   status: 'queued' | 'running' | 'done' | 'failed';
@@ -54,11 +65,35 @@ export interface Job {
   planHash?: string; confirm?: string;
   scope?: { capabilityIds?: string[]; elementIds?: string[] };
   result?: unknown; error?: string;
+  /** Collect jobs run as a chain of invocations: the step expected next, the last sign of life, and progress. */
+  step?: number; heartbeatAt?: string;
+  /** Within the phase: item `index` of `total` (pulls, aggregates or CI classes); `records` only once done. */
+  progress?: Progress;
+  collect?: { customer: string; instance: string; replace: boolean };
 }
+
+/** ServiceNow connection: what is shown to admins. The client secret and password live in secret storage only. */
+export interface Connection {
+  instance: string;
+  grant: 'client_credentials' | 'password';
+  clientId: string;
+  username?: string;
+  customer: string;
+  usageDays: number;
+  requestsPerSecond: number;
+  updatedBy: string; updatedAt: string;
+  lastTest?: { ok: boolean; at: string; release?: string; checks: { name: string; ok: boolean; detail: string }[] };
+}
+interface ConnectionSecret { clientSecret: string; password?: string }
+
+/** Jobs that collect from ServiceNow are listed under this pseudo blueprint id. */
+export const COLLECT = 'sn-collect';
 
 export const designatePhrase = (site: string) => `DESIGNATE ${hostOf(site)} AS SANDBOX`;
 
 const MAX_UPLOAD_CHARS = 20_000_000;
+/** Work per collect invocation, well inside the consumer's 900 s limit (pages, writes and analysis need headroom). */
+const COLLECT_BUDGET_MS = 600_000;
 const UPLOAD_TTL = 3600;
 const KEEP_JOBS = 30;
 /** Longer than the consumer's 900 s limit plus queue delay; equals the default state lock TTL. */
@@ -81,6 +116,19 @@ const P = {
   confirmManual: z.object({ blueprintId: id, designId: z.string().max(200), remoteId: z.string().max(200).optional(), remoteKey: z.string().max(200).optional(), note: z.string().max(2000).optional() }),
   report: z.object({ key: z.string().max(400) }),
   acceptancePlan: z.object({ blueprintId: id, outcomeIds: z.array(z.string().max(200)).max(200).optional() }),
+  connection: z.object({
+    instance: z.string().min(3).max(200),
+    grant: z.enum(['client_credentials', 'password']),
+    clientId: z.string().min(1).max(200),
+    clientSecret: z.string().max(500).optional(),
+    username: z.string().max(200).optional(),
+    password: z.string().max(500).optional(),
+    customer: z.string().min(1).max(120),
+    usageDays: z.number().int().min(1).max(1095).optional(),
+    requestsPerSecond: z.number().min(0.5).max(10).optional(),
+  }),
+  collect: z.object({ replace: z.boolean().optional() }),
+  resume: z.object({ jobId: id }),
   settings: z.object({
     signers: z.array(accountId).max(100).optional(),
     actAs: z.enum(['user', 'app']).optional(),
@@ -97,13 +145,35 @@ function parse<T>(schema: z.ZodType<T>, payload: unknown): T {
 const bpKey = (blueprintId: string) => `blueprints/${safeName(blueprintId)}.json`;
 const jobsPrefix = (blueprintId: string) => `jobs/${safeName(blueprintId)}/`;
 
-interface IndexEntry { id: string; name: string; customer: string; uploadedBy: string; uploadedAt: string; chars: number; outcomes: number; design: number; signedOff: boolean }
+interface IndexEntry { id: string; name: string; customer: string; uploadedBy: string; uploadedAt: string; chars: number; outcomes: number; design: number; signedOff: boolean; source?: string }
+
+/** Collected pages and aggregates for one collection, in the store, so a collection survives between invocations. */
+class StoreSink implements CollectSink {
+  constructor(private readonly store: KvStore, private readonly prefix: string) {}
+  async page(n: number, records: SnRecord[]) { await this.store.write(`${this.prefix}p/${String(n).padStart(6, '0')}.json`, JSON.stringify(records)); }
+  async aggregates(): Promise<Aggregate[]> { const t = await this.store.read(`${this.prefix}aggregates.json`); return t ? (JSON.parse(t) as Aggregate[]) : []; }
+  async aggregate(a: Aggregate) {
+    const all = (await this.aggregates()).filter((x) => x.id !== a.id);
+    await this.store.write(`${this.prefix}aggregates.json`, JSON.stringify([...all, a]));
+  }
+  async aggregateById(id: string) { return (await this.aggregates()).find((a) => a.id === id); }
+  async all(): Promise<SnRecord[]> {
+    const out: SnRecord[] = [];
+    for (const k of await this.store.list(`${this.prefix}p/`)) out.push(...(JSON.parse((await this.store.read(k)) ?? '[]') as SnRecord[]));
+    return out;
+  }
+  async records(table: string) { return (await this.all()).filter((r) => r.table === table); }
+  async clear() { for (const k of await this.store.list(this.prefix)) await this.store.remove(k); }
+}
 
 export class Workbench {
   readonly store: KvStore;
 
-  constructor(readonly platform: Platform, opts: { lockSeconds?: number } = {}) {
-    this.store = new KvStore(platform.kv, { ...opts, ...(platform.now ? { now: platform.now } : {}) });
+  private readonly collectBudgetMs: number;
+
+  constructor(readonly platform: Platform, opts: { lockSeconds?: number; collectBudgetMs?: number } = {}) {
+    this.store = new KvStore(platform.kv, { ...(opts.lockSeconds ? { lockSeconds: opts.lockSeconds } : {}), ...(platform.now ? { now: platform.now } : {}) });
+    this.collectBudgetMs = opts.collectBudgetMs ?? COLLECT_BUDGET_MS;
   }
 
   private now() { return this.platform.now?.() ?? new Date(); }
@@ -333,12 +403,14 @@ export class Workbench {
   private async activeJob(blueprintId: string): Promise<Job | undefined> {
     for (const j of await this.jobs(blueprintId)) {
       if (j.status !== 'queued' && j.status !== 'running') continue;
-      const since = Date.parse(j.startedAt ?? j.queuedAt);
+      const since = Date.parse(j.heartbeatAt ?? j.startedAt ?? j.queuedAt);
       if (this.now().getTime() - since < JOB_STALE_MS) return j;
       const full = await this.loadJob(blueprintId, j.id);
       if (full && (full.status === 'queued' || full.status === 'running')) {
         const { confirm: _c, ...rest } = full;
-        await this.saveJob({ ...rest, status: 'failed', finishedAt: this.now().toISOString(), error: 'interrupted: no result after the time limit; check the state, then start it again' } as Job);
+        await this.saveJob({ ...rest, status: 'failed', finishedAt: this.now().toISOString(), error: full.op === 'collect'
+          ? 'interrupted: no progress within the time limit; resume it from its last checkpoint'
+          : 'interrupted: no result after the time limit; check the state, then start it again' } as Job);
       }
     }
     return undefined;
@@ -377,9 +449,17 @@ export class Workbench {
    */
   async runJob(msg: JobMessage, caller: Omit<Caller, 'accountId'>, retry = false): Promise<Job | undefined> {
     const job = typeof msg.blueprintId === 'string' && typeof msg.jobId === 'string' ? await this.loadJob(msg.blueprintId, msg.jobId) : undefined;
-    if (!job || job.status !== 'queued') return job;
+    if (!job) return job;
     const settings = await this.settings();
     const me: Caller = { ...caller, accountId: job.by };
+    if (job.op === 'collect') {
+      // Read-only and resumable from its checkpoint, so a retried or continued step is safe; stale messages are not.
+      const step = typeof msg.step === 'number' ? msg.step : 0;
+      const expected = job.status === 'queued' ? 0 : job.status === 'running' ? job.step : undefined;
+      if (expected !== step) return job;
+      return this.runCollect(job, step, me);
+    }
+    if (job.status !== 'queued') return job;
     const started: Job = { ...job, status: 'running', startedAt: this.now().toISOString() };
     if (retry) {
       const failed: Job = { ...started, status: 'failed', finishedAt: this.now().toISOString(), error: 'the job was interrupted and is not re-run automatically; check the state and start it again' };
@@ -404,6 +484,209 @@ export class Workbench {
     const { confirm: _c, ...finished } = done;
     await this.saveJob(finished as Job);
     return finished as Job;
+  }
+
+  // ── ServiceNow connection: collect and analyse instead of uploading ──────
+
+  private async connectionRecord(): Promise<Connection | undefined> {
+    return this.platform.kv.get<Connection>('sn-connection');
+  }
+
+  /** The connection as admins see it: never the client secret or password, only whether they are stored. */
+  async connection(caller: Caller) {
+    await this.need(caller, 'admin');
+    const c = await this.connectionRecord();
+    const secret = c ? await this.platform.kv.getSecret<ConnectionSecret>('sn-secret') : undefined;
+    return {
+      connection: c ?? null,
+      hasClientSecret: Boolean(secret?.clientSecret),
+      hasPassword: Boolean(secret?.password),
+      nextBlueprintId: c ? blueprintIdFor(c.customer, this.now().toISOString()) : null,
+      jobs: await this.collectJobs(),
+    };
+  }
+
+  /** Collections with their (small) results, after marking ones that stopped making progress as failed. */
+  private async collectJobs(): Promise<Job[]> {
+    await this.activeJob(COLLECT);
+    const all = await Promise.all((await this.jobs(COLLECT)).map((j) => this.loadJob(COLLECT, j.id)));
+    return all.filter((j): j is Job => Boolean(j));
+  }
+
+  async saveConnection(caller: Caller, payload: unknown) {
+    const p = parse(P.connection, payload);
+    await this.need(caller, 'admin');
+    const instance = normaliseInstanceUrl(p.instance);
+    const prev = await this.connectionRecord();
+    const prevSecret = prev ? await this.platform.kv.getSecret<ConnectionSecret>('sn-secret') : undefined;
+    // A stored secret is only reused for the same instance, client and user; otherwise it must be entered again.
+    const same = prev && prev.instance === instance && prev.clientId === p.clientId && (p.grant !== 'password' || prev.username === p.username);
+    const clientSecret = p.clientSecret || (same ? prevSecret?.clientSecret : undefined);
+    if (!clientSecret) throw new Error('enter the client secret from the ServiceNow application registry');
+    let password: string | undefined;
+    if (p.grant === 'password') {
+      if (!p.username) throw new Error('the password grant needs the integration user name');
+      password = p.password || (same ? prevSecret?.password : undefined);
+      if (!password) throw new Error("enter the integration user's password");
+    }
+    const c: Connection = {
+      instance, grant: p.grant, clientId: p.clientId, ...(p.grant === 'password' ? { username: p.username! } : {}),
+      customer: p.customer.trim(), usageDays: p.usageDays ?? 365, requestsPerSecond: p.requestsPerSecond ?? 4,
+      updatedBy: caller.accountId, updatedAt: this.now().toISOString(),
+    };
+    await this.platform.kv.setSecret('sn-secret', { clientSecret, ...(password ? { password } : {}) } satisfies ConnectionSecret);
+    await this.platform.kv.set('sn-connection', c);
+    return this.connection(caller);
+  }
+
+  async removeConnection(caller: Caller) {
+    await this.need(caller, 'admin');
+    await this.platform.kv.deleteSecret('sn-secret');
+    await this.platform.kv.delete('sn-connection');
+    return this.connection(caller);
+  }
+
+  private async snClient(c: Connection): Promise<{ client: ServiceNowClient; auth: TokenProvider }> {
+    const secret = await this.platform.kv.getSecret<ConnectionSecret>('sn-secret');
+    if (!secret?.clientSecret) throw new Error('the ServiceNow connection has no stored secret: save the connection again');
+    const http = this.platform.snFetch;
+    const auth: TokenProvider = c.grant === 'password'
+      ? new PasswordGrantProvider(c.instance, { clientId: c.clientId, clientSecret: secret.clientSecret, username: c.username ?? '', password: secret.password ?? '' }, http)
+      : new ClientCredentialsProvider(c.instance, c.clientId, secret.clientSecret, http);
+    return { auth, client: new ServiceNowClient({ instanceUrl: c.instance, auth, fetch: http, maxRequestsPerSecond: c.requestsPerSecond, pageSize: 500, ...(this.platform.sleep ? { sleep: this.platform.sleep } : {}) }) };
+  }
+
+  /** Token, instance version, a table read and a count: each reported separately, so a missing grant is obvious. */
+  async testConnection(caller: Caller) {
+    await this.need(caller, 'admin');
+    const c = await this.connectionRecord();
+    if (!c) throw new Error('save a ServiceNow connection first');
+    const checks: { name: string; ok: boolean; detail: string }[] = [];
+    const check = async (name: string, fn: () => Promise<string>) => {
+      try { checks.push({ name, ok: true, detail: await fn() }); return true; } catch (e) { checks.push({ name, ok: false, detail: (e as Error).message }); return false; }
+    };
+    const { client, auth } = await this.snClient(c);
+    let release: string | undefined;
+    if (await check('OAuth token', async () => { await auth.getToken(true); return 'issued'; })) {
+      await check('Instance version (sys_properties)', async () => { release = (await client.instanceInfo()).build; return release ?? 'unknown (no read on sys_properties)'; });
+      await check('Catalog items (Table API)', async () => { for await (const p of client.iterateTable('sc_cat_item', { fields: ['name'], limit: 1 })) return `readable (${p.records.length} sampled)`; return 'readable (empty)'; });
+      await check('Counts (Aggregate API)', async () => `${await client.count('sys_user_group')} groups`);
+    }
+    const ok = checks.every((x) => x.ok);
+    await this.platform.kv.set('sn-connection', { ...c, lastTest: { ok, at: this.now().toISOString(), ...(release ? { release } : {}), checks } } satisfies Connection);
+    return { ok, release: release ?? null, checks };
+  }
+
+  /** Start collecting from ServiceNow; the analysis at the end becomes a blueprint (not signed off). */
+  async startCollection(caller: Caller, payload: unknown) {
+    const p = parse(P.collect, payload);
+    await this.need(caller, 'admin');
+    const c = await this.connectionRecord();
+    if (!c) throw new Error('save a ServiceNow connection first');
+    const target = blueprintIdFor(c.customer, this.now().toISOString());
+    if (!p.replace && (await this.store.read(bpKey(target))) !== undefined) {
+      throw new Error(`blueprint ${target} is already in the workbench: choose replace to collect it again (its sign-off must then be renewed)`);
+    }
+    const active = await this.activeJob(COLLECT);
+    if (active) throw new Error(`a collection is already ${active.status} (job ${active.id}); wait for it to finish`);
+    const job: Job = {
+      id: this.newId(), op: 'collect', blueprintId: COLLECT, by: caller.accountId, status: 'queued', queuedAt: this.now().toISOString(),
+      collect: { customer: c.customer, instance: c.instance, replace: Boolean(p.replace) },
+    };
+    await this.saveJob(job);
+    await this.pruneJobs(COLLECT);
+    await this.enqueueCollect(job, 0);
+    return job;
+  }
+
+  /** Continue a collection that failed or was cut off, from its last checkpoint. */
+  async resumeCollection(caller: Caller, payload: unknown) {
+    const p = parse(P.resume, payload);
+    await this.need(caller, 'admin');
+    const job = await this.loadJob(COLLECT, p.jobId);
+    if (!job || job.op !== 'collect') throw new Error(`collection ${p.jobId} not found`);
+    if (job.status !== 'failed') throw new Error(`collection ${p.jobId} is ${job.status}; only a failed collection can be resumed`);
+    if ((await this.store.read(`collections/${job.id}/cursor.json`)) === undefined) throw new Error('nothing to resume from: start a new collection');
+    const active = await this.activeJob(COLLECT);
+    if (active) throw new Error(`a collection is already ${active.status} (job ${active.id})`);
+    const step = (job.step ?? 0) + 1;
+    const { error: _e, finishedAt: _f, ...rest } = job;
+    const resumed: Job = { ...rest, status: 'running', step, heartbeatAt: this.now().toISOString() };
+    await this.saveJob(resumed);
+    await this.enqueueCollect(resumed, step);
+    return resumed;
+  }
+
+  private async enqueueCollect(job: Job, step: number) {
+    try {
+      await this.platform.enqueue({ jobId: job.id, blueprintId: COLLECT, step }, `bp-${COLLECT}`);
+    } catch (e) {
+      await this.saveJob({ ...job, status: 'failed', finishedAt: this.now().toISOString(), error: `could not queue: ${(e as Error).message}` });
+      throw e;
+    }
+  }
+
+  /** One invocation of a collection: work until the budget is used, checkpoint, and queue the next step. */
+  private async runCollect(job: Job, step: number, me: Caller): Promise<Job> {
+    const started = this.now().getTime();
+    const prefix = `collections/${job.id}/`;
+    let running: Job = { ...job, status: 'running', step, heartbeatAt: new Date(started).toISOString(), ...(job.startedAt ? {} : { startedAt: new Date(started).toISOString() }) };
+    await this.saveJob(running);
+    const fail = async (message: string) => {
+      const failed: Job = { ...running, status: 'failed', finishedAt: this.now().toISOString(), error: message };
+      await this.saveJob(failed);
+      return failed;
+    };
+    try {
+      const c = await this.connectionRecord();
+      if (!c || c.instance !== job.collect?.instance) return await fail('the ServiceNow connection changed or was removed during the collection; start a new one');
+      const { client } = await this.snClient(c);
+      const sink = new StoreSink(this.store, prefix);
+      const saved = await this.store.read(`${prefix}cursor.json`);
+      const from: CollectCursor = saved ? (JSON.parse(saved) as CollectCursor) : startCursor();
+      const totals = { info: 1, pulls: STANDARD_PULLS.length, aggregates: standardAggregates(c.usageDays).length, done: 0 };
+      const progress = (x: CollectCursor): Progress => ({
+        phase: x.phase, index: x.index, total: x.phase === 'fill' ? (x.fill?.length ?? 0) : totals[x.phase], pages: x.pages, warnings: x.warnings.length,
+      });
+      let moved = false;
+      const cursor = await collectSteps(client, from, sink, {
+        usageDays: c.usageDays,
+        // Every step reaches at least one checkpoint before it may stop, so a chain of steps always moves forward.
+        shouldStop: () => moved && this.now().getTime() - started >= this.collectBudgetMs,
+        checkpoint: async (x) => { await this.store.write(`${prefix}cursor.json`, JSON.stringify(x)); moved = true; },
+      });
+      await this.store.write(`${prefix}cursor.json`, JSON.stringify(cursor));
+      if (cursor.phase !== 'done') {
+        running = { ...running, step: step + 1, heartbeatAt: this.now().toISOString(), progress: progress(cursor) };
+        await this.saveJob(running);
+        try {
+          await this.platform.enqueue({ jobId: job.id, blueprintId: COLLECT, step: step + 1 }, `bp-${COLLECT}`);
+        } catch (e) {
+          return await fail(`paused at a checkpoint but could not queue the next step (${(e as Error).message}); resume it`);
+        }
+        return running;
+      }
+
+      // Done: analyse, admit (never signed off), store as a blueprint, and drop the collected pages.
+      const records = await sink.all();
+      const snapshot = snapshotOf(c.instance, cursor, records, await sink.aggregates(), c.usageDays, this.now().toISOString());
+      const bp = this.admit(analyse(snapshot, { customer: job.collect.customer, now: this.now().toISOString() }).blueprint, me);
+      const key = bpKey(bp.id);
+      const exists = (await this.store.read(key)) !== undefined;
+      if (exists && !job.collect.replace) return await fail(`blueprint ${bp.id} appeared in the workbench during the collection; resume after choosing replace, or start again with replace`);
+      const text = JSON.stringify(bp, null, 2);
+      await this.store.write(key, text);
+      await this.indexBlueprint(bp, { uploadedBy: job.by, uploadedAt: this.now().toISOString(), chars: text.length, source: `ServiceNow ${c.instance.replace(/^https:\/\//, '')}` });
+      await sink.clear();
+      const done: Job = {
+        ...running, status: 'done', finishedAt: this.now().toISOString(), progress: { ...progress(cursor), records: records.length },
+        result: { blueprintId: bp.id, replaced: exists, release: cursor.release ?? null, records: records.length, aggregates: snapshot.aggregates.length, warnings: cursor.warnings.slice(0, 50), warningCount: cursor.warnings.length, outcomes: bp.outcomes.length, design: bp.design.length },
+      };
+      await this.saveJob(done);
+      return done;
+    } catch (e) {
+      return await fail(`${(e as Error).message ?? String(e)} (the collection can be resumed from its last checkpoint)`);
+    }
   }
 
   // ── guided steps, status, reports, acceptance plan ────────────────────────

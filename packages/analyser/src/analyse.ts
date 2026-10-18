@@ -63,6 +63,9 @@ export interface AnalysisResult { blueprint: Blueprint; assessment: Assessment }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'x';
 
+/** The id analyse() gives a blueprint for this customer on this date (ISO timestamp or date). */
+export const blueprintIdFor = (customer: string, now: string): string => `bp.${slug(customer)}.${now.slice(0, 10)}`;
+
 /** Merge design elements shared by several capabilities (e.g. the IT service space). First definition wins. */
 function mergeDesign(parts: DesignElement[][]): { design: DesignElement[]; conflicts: string[] } {
   const byId = new Map<string, DesignElement>();
@@ -149,7 +152,7 @@ export function analyse(snapshot: Snapshot, opts: AnalyseOptions): AnalysisResul
   const src = snapshot.source;
   const blueprint = Blueprint.parse({
     schemaVersion: SCHEMA_VERSION,
-    id: `bp.${slug(opts.customer)}.${now.slice(0, 10)}`,
+    id: blueprintIdFor(opts.customer, now),
     name: opts.name ?? `${opts.customer}: ServiceNow → Jira Service Management`,
     customer: { name: opts.customer, ...(opts.industry ? { industry: opts.industry } : {}) },
     createdAt: now, updatedAt: now,

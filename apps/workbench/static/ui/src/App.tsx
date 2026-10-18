@@ -3,12 +3,14 @@ import { view } from '@forge/bridge';
 import { call, uploadBlueprint, type Boot } from './api';
 import { BlueprintView } from './BlueprintView';
 import { SettingsView } from './SettingsView';
+import { ServiceNowView } from './ServiceNowView';
 
 export function App() {
   const [boot, setBoot] = useState<Boot>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<string>();
   const [adminPage, setAdminPage] = useState(false);
+  const [page, setPage] = useState<'blueprints' | 'servicenow'>('blueprints');
 
   const reload = useCallback(async () => {
     try {
@@ -41,7 +43,16 @@ export function App() {
       {error && <div className="error">{error}</div>}
       {adminPage
         ? (boot.role === 'admin' ? <SettingsView boot={boot} onSaved={setBoot} /> : <div className="notice">Only Jira administrators can change the workbench settings.</div>)
-        : (
+        : (<>
+          {boot.role === 'admin' && (
+            <nav className="tabs">
+              <button className={page === 'blueprints' ? 'active' : ''} onClick={() => setPage('blueprints')}>Blueprints</button>
+              <button className={page === 'servicenow' ? 'active' : ''} onClick={() => setPage('servicenow')}>Connect to ServiceNow</button>
+            </nav>
+          )}
+          {page === 'servicenow' && boot.role === 'admin'
+            ? <ServiceNowView onBlueprint={async (id) => { await reload(); setSelected(id); setPage('blueprints'); }} />
+            : (
           <div className="layout">
             <aside>
               <h3>Blueprints</h3>
@@ -52,15 +63,17 @@ export function App() {
                     <button className={b.id === selected ? 'selected' : ''} onClick={() => setSelected(b.id)}>
                       <div><strong>{b.customer}</strong> <span className={b.signedOff ? 'lozenge ok' : 'lozenge'}>{b.signedOff ? 'signed off' : 'not signed off'}</span></div>
                       <div className="muted">{b.id}</div>
+                      {b.source && <div className="muted">from {b.source}</div>}
                     </button>
                   </li>
                 ))}
               </ul>
               {boot.role === 'admin' && <Upload partChars={boot.partChars} onDone={async (id) => { await reload(); setSelected(id); }} />}
             </aside>
-            <main>{selected ? <BlueprintView key={selected} boot={boot} blueprintId={selected} onChanged={reload} /> : <p className="muted">Upload a Migration Blueprint (blueprint.json from the analyser) to start.</p>}</main>
+            <main>{selected ? <BlueprintView key={selected} boot={boot} blueprintId={selected} onChanged={reload} /> : <p className="muted">Upload a Migration Blueprint (blueprint.json from the analyser), or connect to ServiceNow and collect one, to start.</p>}</main>
           </div>
-        )}
+            )}
+        </>)}
     </div>
   );
 }
