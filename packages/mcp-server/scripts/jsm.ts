@@ -3,7 +3,7 @@
  *
  *   npm run jsm -- summary   --blueprint fixture/blueprint.json
  *   npm run jsm -- review    --blueprint fixture/blueprint.json                          offline sign-off review (signHash)
- *   npm run jsm -- sign-off  --blueprint … --hash <signHash> [--reject id] [--defer id] [--comment …] [--confirm "SIGN OFF <hash> FOR <blueprintId>"]
+ *   npm run jsm -- sign-off  --blueprint … --hash <signHash> [--reject id] [--defer id] [--reinstate id] [--comment …] [--confirm "SIGN OFF <hash> FOR <blueprintId>"]
  *   npm run jsm -- plan      --blueprint fixture/blueprint.json [--cap c] [--el id]     offline, from the state file
  *   npm run jsm -- dry-run   --blueprint fixture/blueprint.json --site x.atlassian.net  read-only against the site
  *   npm run jsm -- apply     --blueprint … --site … --hash <planHash> [--confirm "APPLY <hash> TO <site>"]
@@ -84,7 +84,7 @@ async function main() {
         confirm = await rl.question(`Review the outcomes, then type exactly:\n  ${signOffPhrase(signHash, bp.id)}\n> `);
         rl.close();
       }
-      out = svc.signOff({ blueprint, signHash, confirm, reject: a.many('reject'), defer: a.many('defer'), ...(a.one('comment') ? { comment: a.one('comment')! } : {}) });
+      out = svc.signOff({ blueprint, signHash, confirm, reject: a.many('reject'), defer: a.many('defer'), reinstate: a.many('reinstate'), ...(a.one('comment') ? { comment: a.one('comment')! } : {}) });
       break;
     }
     case 'plan': out = await svc.plan(base); break;

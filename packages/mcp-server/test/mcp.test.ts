@@ -196,7 +196,21 @@ describe('build service', () => {
     const so = bp.decisions.at(-1)!;
     expect(so).toMatchObject({ action: 'sign-off', by: 'tester', subject: { kind: 'blueprint', id: base.id }, comment: 'sandbox review', after: { signHash: r.signHash } });
     expect(bp.decisions.filter((d) => d.subject.kind === 'outcome')).toHaveLength(base.outcomes.length);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/already signed off/);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/changed since it was reviewed/);
+    const signed1 = svc.signOffReview({ blueprint });
+    expect(signed1.signedOff).toBe(true);
+    expect(() => svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id) })).toThrow(/already signed off.*reject, defer or reinstate/);
+
+    // Amend: defer one more outcome, then reinstate both; each step is a reviewed, recorded sign-off.
+    const second = base.outcomes[0]!.id;
+    const am = svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id), defer: [second] });
+    expect(am).toMatchObject({ signedOff: true, deferred: expect.arrayContaining([deferred, second]) });
+    expect(svc.loadBlueprint(blueprint).decisions.at(-1)).toMatchObject({ action: 'sign-off', after: { amends: true } });
+    const r3 = svc.signOffReview({ blueprint });
+    const back = svc.signOff({ blueprint, signHash: r3.signHash, confirm: signOffPhrase(r3.signHash, base.id), reinstate: [deferred, second] });
+    expect(back.deferred).toEqual([]);
+    expect(back.confirmed).toHaveLength(base.outcomes.length);
+    expect(() => svc.signOff({ blueprint, signHash: r3.signHash, confirm: 'x', defer: [second], reinstate: [second] })).toThrow();
 
     // A later design change makes it stale; a fresh review has a new hash and the old one is refused.
     svc.setSpace({ blueprint, mode: 'existing', key: 'ZZREF' });

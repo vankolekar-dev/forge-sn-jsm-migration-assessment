@@ -83,7 +83,7 @@ function renderSignOff(bp: Blueprint, signHash: string): string {
     }
     lines.push('');
   }
-  lines.push('---', '', 'Every outcome that is still proposed is confirmed unless it is named as rejected or deferred.', '', `To sign off, the person accountable for these outcomes types exactly: \`${signOffPhrase(signHash, bp.id)}\``);
+  lines.push('---', '', 'Every outcome that is still proposed is confirmed unless it is named as rejected or deferred. A signed-off blueprint is amended by naming outcomes to reject, defer or reinstate.', '', `To sign off, the person accountable for these outcomes types exactly: \`${signOffPhrase(signHash, bp.id)}\``);
   return lines.join('\n');
 }
 
@@ -248,9 +248,9 @@ export class BuildService {
   }
 
   /** Record a person's sign-off: one decision per outcome, then the blueprint sign-off. Refused if anything changed since the review. */
-  signOff(i: { blueprint: string; signHash: string; confirm: string; reject?: string[]; defer?: string[]; comment?: string }) {
+  signOff(i: { blueprint: string; signHash: string; confirm: string; reject?: string[]; defer?: string[]; reinstate?: string[]; comment?: string }) {
     const bp = this.loadBlueprint(i.blueprint);
-    if (isSignedOff(bp)) throw new Error(`${bp.id} is already signed off and unchanged since`);
+    const wasSigned = isSignedOff(bp);
     const current = hashOf(signOffContent(bp));
     if (current !== i.signHash) throw new Error(`the blueprint changed since it was reviewed (signHash is now ${current}): run signoff_review again and re-check the outcomes`);
     const phrase = signOffPhrase(current, bp.id);
@@ -259,15 +259,16 @@ export class BuildService {
     const ids = new Set(bp.outcomes.map((o) => o.id));
     const reject = new Set(i.reject ?? []);
     const defer = new Set(i.defer ?? []);
-    for (const id of [...reject, ...defer]) if (!ids.has(id)) throw new Error(`no outcome ${id} in ${bp.id}`);
-    const both = [...reject].filter((id) => defer.has(id));
-    if (both.length) throw new Error(`an outcome cannot be both rejected and deferred: ${both.join(', ')}`);
+    const reinstate = new Set(i.reinstate ?? []);
+    for (const id of [...reject, ...defer, ...reinstate]) if (!ids.has(id)) throw new Error(`no outcome ${id} in ${bp.id}`);
+    const both = [...reject, ...defer, ...reinstate].filter((id, n, all) => all.indexOf(id) !== n);
+    if (both.length) throw new Error(`an outcome can only be rejected, deferred or reinstated once: ${[...new Set(both)].join(', ')}`);
 
     const at = new Date().toISOString();
     const stamp = at.replace(/[^0-9]/g, '');
     const decisions: Blueprint['decisions'] = [];
     const outcomes = bp.outcomes.map((o) => {
-      const to = reject.has(o.id) ? 'rejected' : defer.has(o.id) ? 'deferred' : OPEN_OUTCOME.has(o.status) ? 'confirmed' : o.status;
+      const to = reject.has(o.id) ? 'rejected' : defer.has(o.id) ? 'deferred' : reinstate.has(o.id) || OPEN_OUTCOME.has(o.status) ? 'confirmed' : o.status;
       if (to === o.status) return o;
       const action = to === 'rejected' ? 'reject' : to === 'deferred' ? 'defer' : 'confirm';
       decisions.push({ id: `d.outcome.${o.id}.${stamp}`, at, by: this.cfg.by, subject: { kind: 'outcome', id: o.id }, action, before: { status: o.status }, after: { status: to } });
@@ -275,10 +276,11 @@ export class BuildService {
     });
     const by = (s: string) => outcomes.filter((o) => o.status === s).map((o) => o.id);
     const result = { confirmed: by('confirmed'), rejected: by('rejected'), deferred: by('deferred') };
+    if (wasSigned && !decisions.length) throw new Error(`${bp.id} is already signed off and unchanged since: name outcomes to reject, defer or reinstate to amend it`);
     if (!result.confirmed.length) throw new Error('nothing to sign off: every outcome would be rejected or deferred');
     decisions.push({
       id: `d.sign-off.${bp.id}.${stamp}`, at, by: this.cfg.by, subject: { kind: 'blueprint', id: bp.id }, action: 'sign-off',
-      ...(i.comment ? { comment: i.comment } : {}), after: { signHash: current, ...result },
+      ...(i.comment ? { comment: i.comment } : {}), after: { signHash: current, ...result, ...(wasSigned ? { amends: true } : {}) },
     });
 
     const parsed = Blueprint.safeParse({ ...bp, updatedAt: at, outcomes, decisions: [...bp.decisions, ...decisions] });

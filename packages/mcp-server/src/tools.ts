@@ -47,12 +47,13 @@ export function registerTools(server: McpServer, svc: BuildService): void {
 
   server.registerTool('signoff_record', {
     title: 'Record sign-off',
-    description: 'Record that a person signed off the reviewed outcomes: confirms open outcomes (except those named in reject/defer), logs one decision per outcome and the blueprint sign-off with who and when. Never call this on your own initiative: only pass confirm when the person has typed "SIGN OFF <signHash> FOR <blueprintId>" themselves. Refused if the blueprint changed since signoff_review.',
+    description: 'Record that a person signed off the reviewed outcomes: confirms open outcomes (except those named in reject/defer), logs one decision per outcome and the blueprint sign-off with who and when. A signed-off blueprint can be amended by naming outcomes to reject, defer or reinstate. Never call this on your own initiative: only pass confirm when the person has typed "SIGN OFF <signHash> FOR <blueprintId>" themselves. Refused if the blueprint changed since signoff_review.',
     inputSchema: {
       blueprint, signHash: z.string().describe('signHash from signoff_review'),
       confirm: z.string().describe('The exact phrase typed by the person: SIGN OFF <signHash> FOR <blueprintId>'),
       reject: z.array(z.string()).optional().describe('Outcome ids the person rejects'),
       defer: z.array(z.string()).optional().describe('Outcome ids the person defers'),
+      reinstate: z.array(z.string()).optional().describe('Rejected or deferred outcome ids the person confirms again'),
       comment: z.string().optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
