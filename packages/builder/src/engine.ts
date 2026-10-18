@@ -4,7 +4,7 @@ import { handlerFor } from './handlers';
 import { isExistingSpace, isProvided, isTemplateProvided, templateOf } from './handlers/util';
 import { hashOf, stableStringify } from './hash';
 import {
-  BlockedError, type Action, type BuildOptions, type BuildState, type Change, type ElementState, type Handler, type HandlerContext, type ManualStep,
+  BlockedError, type Action, type BuildOptions, type BuildState, type CarriedConfirmation, type Change, type ElementState, type Handler, type HandlerContext, type ManualStep,
   type Plan, type PlanStep, type Remote, type SiteApi, type Strategy, type VerifyReport, type VerifyResult, type VerifyStatus,
 } from './types';
 
@@ -122,11 +122,50 @@ export function diff(want: Record<string, unknown>, have: Record<string, unknown
 
 const DONE: ElementState['status'][] = ['created', 'adopted', 'updated', 'manual-done'];
 
+// ── Carry forward ─────────────────────────────────────────────────────────
+
+/**
+ * A re-analysis gives a new blueprint id, so a new state file: guided steps a person already confirmed would be asked
+ * for again. Reuse a confirmation from an earlier blueprint's state only when it is on the same site, for the same
+ * element id and type, with an identical spec hash, and this state has nothing better (absent or still pending).
+ * Pure: returns a copy of the state with the carried entries; the dry-run lists them and they are in the plan hash.
+ */
+export function carryForward(bp: Blueprint, state: BuildState | undefined, prior: BuildState[] = [], site?: string): { state: BuildState | undefined; carried: CarriedConfirmation[] } {
+  const pinned = state?.site ?? site;
+  const sources = prior.filter((p) => p.site === pinned && p.blueprintId !== bp.id);
+  if (!pinned || !sources.length) return { state, carried: [] };
+  const carried: CarriedConfirmation[] = [];
+  let next: BuildState | undefined;
+  for (const el of bp.design) {
+    const cur = state?.elements[el.id];
+    if (cur && cur.status !== 'manual-pending') continue;
+    const hash = specHashOf(el);
+    const best = sources
+      .flatMap((p) => { const e = p.elements[el.id]; return e && e.status === 'manual-done' && e.type === el.type && e.specHash === hash ? [{ from: p.blueprintId, e }] : []; })
+      .sort((a, b) => b.e.at.localeCompare(a.e.at) || a.from.localeCompare(b.from))[0];
+    if (!best) continue;
+    if (!next) {
+      const at = new Date().toISOString();
+      next = state ? structuredClone(state) : { schemaVersion: '1', blueprintId: bp.id, site: pinned, createdAt: at, updatedAt: at, elements: {}, runs: [] };
+    }
+    const { e, from } = best;
+    next.elements[el.id] = {
+      designId: el.id, type: el.type, status: 'manual-done', specHash: hash, at: e.at, manualPending: [],
+      ...(e.by ? { by: e.by } : {}), ...(e.remote ? { remote: e.remote } : {}),
+      note: `carried forward from ${from}${e.note ? `: ${e.note}` : ''}`,
+    };
+    carried.push({ designId: el.id, fromBlueprint: from, at: e.at, ...(e.by ? { by: e.by } : {}), ...(e.remote ? { remote: e.remote } : {}), ...(e.note ? { note: e.note } : {}) });
+  }
+  return { state: next ?? state, carried };
+}
+
 // ── Plan / dry-run ────────────────────────────────────────────────────────
 
 export interface PlanInput {
   bp: Blueprint;
   state?: BuildState;
+  /** States of earlier blueprints on the same site: identical confirmed guided steps carry forward (see carryForward). */
+  prior?: BuildState[];
   scope?: Scope;
   /** Read-only site access for a dry-run. Without it the plan is offline (from the state file only). */
   api?: SiteApi;
@@ -135,7 +174,8 @@ export interface PlanInput {
 }
 
 export async function plan(input: PlanInput): Promise<Plan> {
-  const { bp, state, scope = {}, options = {} } = input;
+  const { bp, scope = {}, options = {} } = input;
+  const { state, carried } = carryForward(bp, input.state, input.prior, input.api?.siteUrl);
   const live = Boolean(input.api);
   const api = input.api ?? READ_ONLY_API;
   if (live && !api.readOnly) throw new Error('dry-run must use a read-only client');
@@ -252,11 +292,15 @@ export async function plan(input: PlanInput): Promise<Plan> {
   for (const s of steps) summary[s.action]++;
   return {
     blueprintId: bp.id, ...(live ? { site: api.siteUrl } : {}), mode: live ? 'dry-run' : 'offline', createdAt: input.now ?? new Date().toISOString(),
-    scope, steps, planHash: planHashOf(steps), summary, warnings,
+    scope, steps, planHash: planHashOf(steps, carried), summary, warnings, ...(carried.length ? { carried } : {}),
   };
 }
 
-export const planHashOf = (steps: PlanStep[]) => hashOf(steps.map((s) => [s.designId, s.action, s.specHash, s.remote?.id ?? null, s.resolved ?? null]));
+/** Without carried confirmations the hash is unchanged from earlier versions. */
+export const planHashOf = (steps: PlanStep[], carried: CarriedConfirmation[] = []) => {
+  const s = steps.map((x) => [x.designId, x.action, x.specHash, x.remote?.id ?? null, x.resolved ?? null]);
+  return hashOf(carried.length ? [s, carried.map((c) => [c.designId, c.fromBlueprint, c.remote?.id ?? null])] : s);
+};
 
 // ── Apply ─────────────────────────────────────────────────────────────────
 
@@ -276,6 +320,8 @@ export interface ApplyInput {
   readApi: SiteApi;
   /** planHash of the dry-run a person approved. apply refuses if the fresh dry-run differs. */
   approvedPlanHash: string;
+  /** Same earlier states the dry-run used, so carried confirmations are recorded (and the plan hash matches). */
+  prior?: BuildState[];
   scope?: Scope;
   options?: BuildOptions;
   /** Allow building before the blueprint is signed off (sandbox demos). */
@@ -311,8 +357,18 @@ export async function apply(input: ApplyInput): Promise<ApplyResult> {
   if (api.siteUrl !== state.site || input.readApi.siteUrl !== state.site) throw new Error(`state is pinned to ${state.site}; refusing to build on ${api.siteUrl}`);
   if (state.blueprintId !== bp.id) throw new Error(`state is for blueprint ${state.blueprintId}, not ${bp.id}`);
   if (!isSignedOff(bp) && !input.allowUnsigned) throw new Error('blueprint is not signed off: record a sign-off decision (or allow unsigned builds for a sandbox)');
-  const fresh = await plan({ bp, state, scope, api: input.readApi, options });
+  const fresh = await plan({ bp, state, scope, api: input.readApi, options, ...(input.prior ? { prior: input.prior } : {}) });
   if (fresh.planHash !== input.approvedPlanHash) throw new Error(`the site or design changed since the approved dry-run (approved ${input.approvedPlanHash}, now ${fresh.planHash}). Run dry-run again and review it.`);
+
+  // Record the confirmations the approved dry-run carried forward before building what depends on them.
+  if (fresh.carried?.length) {
+    const withCarried = carryForward(bp, state, input.prior).state!;
+    for (const c of fresh.carried) {
+      state.elements[c.designId] = withCarried.elements[c.designId]!;
+      state.runs.push({ id: `run-${state.runs.length + 1}`, op: 'carry-forward', at: new Date().toISOString(), planHash: fresh.planHash, summary: `${c.designId} carried forward from ${c.fromBlueprint} (confirmed by ${c.by ?? 'a person'} on ${c.at.slice(0, 10)})` });
+    }
+    input.persist?.(state);
+  }
 
   const run = new Map<string, Remote>();
   const cache = new Map<string, unknown>();

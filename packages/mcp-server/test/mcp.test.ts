@@ -117,6 +117,44 @@ describe('build service', () => {
     expect(v.summary.missing).toBe(0);
   });
 
+  it('carries confirmed guided steps forward to a re-analysed blueprint on the same site, only when the design is identical', async () => {
+    const { svc, blueprint, site, workdir } = setup();
+    const go = async (b: string) => {
+      const d = await svc.plan({ blueprint: b, dryRun: true });
+      return { d, r: await svc.apply({ blueprint: b, planHash: d.planHash, confirm: confirmPhrase(d.planHash, site.siteUrl) }) };
+    };
+    await go(blueprint);
+    const schema = site.createSchemaFromTemplate('atl.assets.template.itam', 'IT assets', 'ITAM');
+    await svc.confirmManual({ blueprint, designId: 'as.schema.itam', remoteId: schema.id, remoteKey: 'ITAM', note: 'made from the ITAM template' });
+
+    // Re-analysis: same design, new id. One copy also changes the schema's design.
+    const v1 = signed(base);
+    const next = { ...v1, id: `${base.id}-b` };
+    const changed = { ...v1, id: `${base.id}-c`, design: v1.design.map((el) => (el.id === 'as.schema.itam' ? { ...el, name: `${el.name} (renamed)` } : el)) };
+    writeFileSync(join(workdir, 'fx/next.json'), JSON.stringify(next));
+    writeFileSync(join(workdir, 'fx/changed.json'), JSON.stringify(changed));
+
+    const c = await svc.plan({ blueprint: 'fx/changed.json', dryRun: true });
+    expect(c.carried.map((x) => x.designId)).not.toContain('as.schema.itam');
+
+    const writes = site.writes.length;
+    const d = await svc.plan({ blueprint: 'fx/next.json', dryRun: true });
+    expect(site.writes).toHaveLength(writes);
+    expect(d.carried).toEqual([expect.objectContaining({ designId: 'as.schema.itam', fromBlueprint: base.id, by: 'tester', remote: expect.objectContaining({ id: schema.id }), note: 'made from the ITAM template' })]);
+    expect(readFileSync(join(workdir, d.files.markdown), 'utf8')).toContain('Guided steps carried forward');
+    expect((await svc.manualSteps({ blueprint: 'fx/next.json' })).steps.map((s) => s.designId)).toContain('as.schema.itam');
+
+    const r = await svc.apply({ blueprint: 'fx/next.json', planHash: d.planHash, confirm: confirmPhrase(d.planHash, site.siteUrl) });
+    expect(r.failed).toEqual([]);
+    const state = JSON.parse(readFileSync(join(workdir, r.state), 'utf8'));
+    expect(state.elements['as.schema.itam']).toMatchObject({ status: 'manual-done', by: 'tester', remote: { id: schema.id }, note: expect.stringContaining(`carried forward from ${base.id}`) });
+    expect(state.runs.some((x: { op: string }) => x.op === 'carry-forward')).toBe(true);
+    // The Assets types that waited on the schema were bound in the same run, and nothing is carried twice.
+    expect(state.elements['as.ot.hardware-model']?.remote).toBeTruthy();
+    expect((await svc.manualSteps({ blueprint: 'fx/next.json' })).steps.map((s) => s.designId)).not.toContain('as.schema.itam');
+    expect((await svc.plan({ blueprint: 'fx/next.json', dryRun: true })).carried).toEqual([]);
+  });
+
   it('sets the target space, records the decision and makes the sign-off stale', async () => {
     const { svc, blueprint, site } = setup();
     expect(svc.summary({ blueprint }).signedOff).toBe(true);

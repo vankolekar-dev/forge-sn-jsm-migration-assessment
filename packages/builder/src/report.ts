@@ -21,6 +21,13 @@ export function renderPlan(p: Plan): string {
     '',
     Object.entries(p.summary).filter(([, v]) => v).map(([k, v]) => `${ICON[k]} ${k} **${v}**`).join(' · '),
     p.mode === 'offline' ? '\n> Offline plan: nothing was read from the site. Run a dry-run to see exactly what exists.' : '',
+    ...(p.carried?.length
+      ? [
+        '\n## Guided steps carried forward',
+        '_Confirmed by a person for an earlier blueprint on this site; the design is identical, so they are not asked for again. Apply records them; check they are still true._',
+        table(['Element', 'From blueprint', 'Confirmed by', 'On', 'Site id', 'Note'], p.carried.map((c) => [c.designId, c.fromBlueprint, c.by ?? '', c.at.slice(0, 10), c.remote ? `${c.remote.key ?? c.remote.id}` : '', c.note ?? ''])),
+      ]
+      : []),
     '\n## Steps (build order)',
     table(['#', 'Action', 'Type', 'Element', 'Coverage', 'Why'], p.steps.map((s, i) => [i + 1, `${ICON[s.action]} ${s.action}`, s.type, s.name, s.coverage, s.reason])),
   ];

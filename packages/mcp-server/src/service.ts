@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { normaliseSite } from '@snjsm/atlassian';
 import { Blueprint, PERSONAS } from '@snjsm/model';
@@ -151,6 +151,24 @@ export class BuildService {
     return s;
   }
 
+  /** States of other blueprints pinned to the same site, for carrying identical confirmed guided steps forward. */
+  private priorStates(bp: Blueprint, site: string): BuildState[] {
+    const dir = this.path('state');
+    if (!existsSync(dir)) return [];
+    const suffix = `@${hostOf(site)}.json`;
+    const own = this.statePath(bp, site);
+    const out: BuildState[] = [];
+    for (const f of readdirSync(dir)) {
+      const abs = join(dir, f);
+      if (!f.endsWith(suffix) || abs === own) continue;
+      try {
+        const s = readState(abs);
+        if (s && s.site === site && s.blueprintId !== bp.id) out.push(s);
+      } catch { /* unreadable or other version: ignore */ }
+    }
+    return out;
+  }
+
   private planFile(bp: Blueprint, site: string | undefined, hash: string, ext: 'json' | 'md') {
     return join('plans', `${safeName(bp.id)}@${site ? hostOf(site) : 'offline'}-${hash.slice(0, 12)}.${ext}`);
   }
@@ -276,7 +294,10 @@ export class BuildService {
     const bp = this.loadBlueprint(i.blueprint);
     const site = i.dryRun ? this.needSite(bp, i.site) : this.siteFor(bp, i.site);
     const state = site ? this.loadState(bp, site) : undefined;
-    const p = await plan({ bp, ...(state ? { state } : {}), scope: scopeOf(i), ...(i.dryRun ? { api: this.cfg.clientFor(site!, true) } : {}), ...(this.cfg.options ? { options: this.cfg.options } : {}) });
+    const p = await plan({
+      bp, ...(state ? { state } : {}), scope: scopeOf(i), ...(i.dryRun ? { api: this.cfg.clientFor(site!, true), prior: this.priorStates(bp, site!) } : {}),
+      ...(this.cfg.options ? { options: this.cfg.options } : {}),
+    });
     if (site) p.site = site;
     const md = renderPlan(p);
     const jsonFile = this.write(this.planFile(bp, site, p.planHash, 'json'), JSON.stringify(p, null, 2));
@@ -284,6 +305,7 @@ export class BuildService {
     const canApply = p.mode === 'dry-run' && Boolean(site && this.cfg.writeSites.includes(site));
     return {
       planHash: p.planHash, mode: p.mode, site: site ?? null, summary: p.summary, warnings: p.warnings, files: { json: jsonFile, markdown: mdFile },
+      carried: p.carried ?? [],
       signedOff: isSignedOff(bp),
       apply: p.mode !== 'dry-run'
         ? 'offline plan: run a dry-run against the site before apply'
@@ -307,7 +329,7 @@ export class BuildService {
     return withLock(statePath, async () => {
       const state = this.loadState(bp, site) ?? newState(bp.id, site);
       const res = await apply({
-        bp, state, api: this.cfg.clientFor(site, false), readApi: this.cfg.clientFor(site, true), approvedPlanHash: i.planHash,
+        bp, state, api: this.cfg.clientFor(site, false), readApi: this.cfg.clientFor(site, true), approvedPlanHash: i.planHash, prior: this.priorStates(bp, site),
         scope: scopeOf(i), allowUnsigned: this.cfg.allowUnsigned, by: this.cfg.by, persist: (s) => writeState(statePath, s),
         ...(this.cfg.options ? { options: this.cfg.options } : {}),
       });

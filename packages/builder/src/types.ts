@@ -92,6 +92,8 @@ export interface Plan {
   planHash: string;
   summary: Record<Action, number>;
   warnings: string[];
+  /** Guided-step confirmations reused from an earlier blueprint's state on this site (part of the plan hash). */
+  carried?: CarriedConfirmation[];
 }
 
 export type ElementStatus = 'created' | 'adopted' | 'updated' | 'manual-pending' | 'manual-done' | 'failed';
@@ -113,7 +115,10 @@ export interface ElementState {
   verifyResult?: VerifyStatus;
 }
 
-export interface RunRecord { id: string; op: 'apply' | 'confirm-manual' | 'verify' | 'acceptance'; at: string; planHash?: string; summary: string }
+export interface RunRecord { id: string; op: 'apply' | 'confirm-manual' | 'carry-forward' | 'verify' | 'acceptance'; at: string; planHash?: string; summary: string }
+
+/** A guided step a person confirmed for an earlier blueprint on the same site, reused because the design is identical. */
+export interface CarriedConfirmation { designId: string; fromBlueprint: string; by?: string; at: string; remote?: Remote; note?: string }
 
 export interface BuildState {
   schemaVersion: '1';
