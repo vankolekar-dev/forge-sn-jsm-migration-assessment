@@ -40,7 +40,7 @@ async function main() {
   const svc = new BuildService(cfg);
   await createServer(svc).connect(new StdioServerTransport());
   // stdout is the protocol channel: log to stderr only.
-  console.error(`snjsm-builder MCP ready (workdir ${svc.cfg.workdir}; apply ${svc.cfg.writeSites.length ? `allowed on ${svc.cfg.writeSites.join(', ')}` : 'disabled'})`);
+  console.error(`snjsm-builder MCP ready (workdir ${cfg.workdir}; apply ${svc.cfg.writeSites.length ? `allowed on ${svc.cfg.writeSites.join(', ')}` : 'disabled'})`);
 }
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });

@@ -11,7 +11,7 @@ import {
   type Clock, TEST_TAG, cleanupTestData, criterionVerdict, outcomeVerdict, planAcceptance, renderAcceptancePlan,
   renderAcceptanceResult, runAcceptance,
 } from '@snjsm/acceptance';
-import { BuildService, cleanupPhrase, testPhrase } from '@snjsm/mcp-server';
+import { BuildService, cleanupPhrase, FsStore, testPhrase } from '@snjsm/mcp-server';
 
 const xml = readFileSync(join(__dirname, '../../collector/test/fixtures/enterprise-update-set.xml'), 'utf8');
 const base = analyse(snapshotFromXml([{ name: 'enterprise.xml', xml }]), { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
@@ -205,7 +205,7 @@ describe('acceptance run on a fake sandbox', () => {
     expect(site.objects).toHaveLength(0);
   });
 
-  it('verdict rules: parity needs every criterion to pass', () => {
+  it('verdict rules: parity needs every criterion to pass', async () => {
     expect(criterionVerdict([{ index: 1, kind: 'x', result: 'pass', detail: '' }, { index: 2, kind: 'n', result: 'manual', detail: '' }])).toBe('partial');
     expect(outcomeVerdict(['pass', 'pass'])).toBe('pass');
     expect(outcomeVerdict(['pass', 'blocked'])).toBe('partial');
@@ -226,7 +226,7 @@ describe('service gates', () => {
     writeState(join(workdir, 'state', `${bp.id}@${new URL(site.siteUrl).hostname}.json`), state);
     writeFileSync(join(workdir, 'acceptance', `${new URL(site.siteUrl).hostname}.json`), JSON.stringify(config));
     const svc = new BuildService({
-      workdir, writeSites: o.writeSites ?? [site.siteUrl], allowUnsigned: true, by: 'tester', defaultSite: site.siteUrl,
+      store: new FsStore(workdir), writeSites: o.writeSites ?? [site.siteUrl], allowUnsigned: true, by: 'tester', defaultSite: site.siteUrl,
       clientFor: (_s, ro) => site.client(ro),
       personaClientFor: (_s, p) => (p === 'requester-manager' ? site.client(false, MANAGER) : undefined),
       acceptance: { clock: fakeClock() },
@@ -239,13 +239,13 @@ describe('service gates', () => {
 
   it('plans offline, then runs only with the allowlist and the exact phrase', async () => {
     const off = await setup({ writeSites: [] });
-    const p0 = off.svc.acceptancePlan({ blueprint: off.blueprint });
+    const p0 = await off.svc.acceptancePlan({ blueprint: off.blueprint });
     expect(p0.run).toMatch(/disabled/);
     await expect(off.svc.acceptanceRun({ blueprint: off.blueprint, runHash: p0.runHash, confirm: testPhrase(p0.runHash, off.site.siteUrl) })).rejects.toThrow(/SNJSM_WRITE_SITES/);
     expect(off.newWrites()).toHaveLength(0);
 
     const { svc, site, workdir, blueprint, newWrites } = await setup();
-    const p = svc.acceptancePlan({ blueprint });
+    const p = await svc.acceptancePlan({ blueprint });
     expect(p.run).toContain(testPhrase(p.runHash, site.siteUrl));
     expect(existsSync(join(workdir, p.files.json))).toBe(true);
     await expect(svc.acceptanceRun({ blueprint, runHash: p.runHash, confirm: 'yes' })).rejects.toThrow(/exactly/);
@@ -268,7 +268,7 @@ describe('service gates', () => {
 
   it('refuses a run when the plan changed since review', async () => {
     const { svc, site, workdir, blueprint, newWrites } = await setup();
-    const p = svc.acceptancePlan({ blueprint });
+    const p = await svc.acceptancePlan({ blueprint });
     writeFileSync(join(workdir, 'acceptance', `${new URL(site.siteUrl).hostname}.json`), JSON.stringify({ personas: { requester: { accountId: 'someone-else' } } }));
     await expect(svc.acceptanceRun({ blueprint, runHash: p.runHash, confirm: testPhrase(p.runHash, site.siteUrl) })).rejects.toThrow(/changed since it was reviewed/);
     expect(newWrites()).toHaveLength(0);

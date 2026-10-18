@@ -1,11 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cleanupPhrase, confirmPhrase, signOffPhrase, testPhrase } from '@snjsm/mcp-server';
 
 // The orchestration skill must stay in step with the tools, the CLI and the gate phrases it tells Rovo to use.
-const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const root = join(__dirname, '../../..');
 const skill = readFileSync(join(root, '.rovo/skills/sn-jsm-outcome-migration/SKILL.md'), 'utf8');
 const tools = [...readFileSync(join(root, 'packages/mcp-server/src/tools.ts'), 'utf8').matchAll(/registerTool\('([a-z_]+)'/g)].map((m) => m[1]!);
 const cli = [...readFileSync(join(root, 'packages/mcp-server/scripts/jsm.ts'), 'utf8').matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]!);

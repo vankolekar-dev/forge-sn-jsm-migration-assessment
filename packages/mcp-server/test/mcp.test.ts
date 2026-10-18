@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { snapshotFromXml } from '@snjsm/collector';
 import { analyse } from '@snjsm/analyser';
 import { FakeSite } from '@snjsm/builder';
 import type { Blueprint } from '@snjsm/model';
-import { BuildService, configFromEnv, confirmPhrase, createServer, signOffPhrase } from '@snjsm/mcp-server';
+import { BuildService, configFromEnv, confirmPhrase, createServer, FsStore, signOffPhrase } from '@snjsm/mcp-server';
 
 const xml = readFileSync(join(__dirname, '../../collector/test/fixtures/enterprise-update-set.xml'), 'utf8');
 const base = analyse(snapshotFromXml([{ name: 'enterprise.xml', xml }]), { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
@@ -20,7 +20,7 @@ function setup(o: { bp?: Blueprint; writeSites?: string[]; allowUnsigned?: boole
   writeFileSync(join(workdir, 'fx/blueprint.json'), JSON.stringify(o.bp ?? signed(base)));
   const site = new FakeSite();
   const svc = new BuildService({
-    workdir, writeSites: o.writeSites ?? [site.siteUrl], allowUnsigned: o.allowUnsigned ?? false, by: 'tester', defaultSite: site.siteUrl,
+    store: new FsStore(workdir), writeSites: o.writeSites ?? [site.siteUrl], allowUnsigned: o.allowUnsigned ?? false, by: 'tester', defaultSite: site.siteUrl,
     clientFor: (s, ro) => { expect(s).toBe(site.siteUrl); return site.client(ro); },
   });
   return { workdir, site, svc, blueprint: 'fx/blueprint.json' };
@@ -32,11 +32,34 @@ describe('config and file guard', () => {
     expect(c).toMatchObject({ workdir: '/w/out', defaultSite: 'https://a-sandbox.atlassian.net', writeSites: ['https://a-sandbox.atlassian.net', 'https://b.atlassian.net'], allowUnsigned: false });
     expect(configFromEnv({}, () => { throw new Error('x'); }, '/w').writeSites).toEqual([]);
   });
-  it('refuses paths outside the work directory', () => {
+  it('refuses keys outside the work directory', async () => {
     const { svc } = setup();
-    expect(() => svc.loadBlueprint('../../etc/passwd')).toThrow(/outside the work directory/);
-    expect(() => svc.loadBlueprint('/etc/passwd')).toThrow(/outside the work directory/);
-    expect(() => svc.loadBlueprint('nope.json')).toThrow(/not found/);
+    await expect(svc.loadBlueprint('../../etc/passwd')).rejects.toThrow(/invalid storage key/);
+    await expect(svc.loadBlueprint('/etc/passwd')).rejects.toThrow(/invalid storage key/);
+    await expect(svc.loadBlueprint('nope.json')).rejects.toThrow(/not found/);
+  });
+
+  it('file store: atomic writes, listing, symlinks out refused, exclusive locks', async () => {
+    const { workdir } = setup();
+    const store = new FsStore(workdir);
+    const outside = mkdtempSync(join(tmpdir(), 'snjsm-outside-'));
+    writeFileSync(join(outside, 'secret.json'), '{}');
+    symlinkSync(outside, join(workdir, 'link'));
+    await expect(store.read('link/secret.json')).rejects.toThrow(/outside the work directory/);
+    await expect(store.write('link/x.json', '{}')).rejects.toThrow(/outside the work directory/);
+    await store.write('state/a@x.json', 'one');
+    await store.write('state/deep/b.json', 'two');
+    expect(await store.read('state/a@x.json')).toBe('one');
+    expect(await store.list('state/')).toEqual(['state/a@x.json', 'state/deep/b.json']);
+    expect(await store.list('nothing/')).toEqual([]);
+    const held = store.lock('state/a@x.json', async () => {
+      expect(existsSync(join(workdir, 'state/a@x.json.lock'))).toBe(true);
+      expect(await store.list('state/')).toEqual(['state/a@x.json', 'state/deep/b.json']);
+      await expect(store.lock('state/a@x.json', async () => 1)).rejects.toThrow(/locked by another run/);
+      return 7;
+    });
+    expect(await held).toBe(7);
+    expect(existsSync(join(workdir, 'state/a@x.json.lock'))).toBe(false);
   });
 });
 
@@ -83,7 +106,7 @@ describe('build service', () => {
     expect(existsSync(join(workdir, r.state))).toBe(true);
     expect(existsSync(join(workdir, `${r.state}.lock`))).toBe(false);
 
-    const st = svc.status({ blueprint });
+    const st = await svc.status({ blueprint });
     expect(st.exists).toBe(true);
     expect(st.elements.recorded).toBeGreaterThan(10);
 
@@ -157,15 +180,15 @@ describe('build service', () => {
 
   it('sets the target space, records the decision and makes the sign-off stale', async () => {
     const { svc, blueprint, site } = setup();
-    expect(svc.summary({ blueprint }).signedOff).toBe(true);
-    expect(() => svc.setSpace({ blueprint, mode: 'existing' })).toThrow(/needs its key/);
-    expect(() => svc.setSpace({ blueprint, mode: 'new', key: 'bad key' })).toThrow(/invalid space key/);
-    const r = svc.setSpace({ blueprint, mode: 'existing', key: 'its' });
+    expect((await svc.summary({ blueprint })).signedOff).toBe(true);
+    await expect(svc.setSpace({ blueprint, mode: 'existing' })).rejects.toThrow(/needs its key/);
+    await expect(svc.setSpace({ blueprint, mode: 'new', key: 'bad key' })).rejects.toThrow(/invalid space key/);
+    const r = await svc.setSpace({ blueprint, mode: 'existing', key: 'its' });
     expect(r).toMatchObject({ designId: 'sp.it-service-desk', after: { mode: 'existing', key: 'ITS' }, signedOff: false });
     expect(r.next).toMatch(/sign off again/);
-    const s = svc.summary({ blueprint });
+    const s = await svc.summary({ blueprint });
     expect(s.spaces).toEqual([{ designId: 'sp.it-service-desk', name: expect.any(String), mode: 'existing', key: 'ITS' }]);
-    expect(svc.loadBlueprint(blueprint).decisions.at(-1)).toMatchObject({ action: 'change', subject: { kind: 'design-element', id: 'sp.it-service-desk' } });
+    expect((await svc.loadBlueprint(blueprint)).decisions.at(-1)).toMatchObject({ action: 'change', subject: { kind: 'design-element', id: 'sp.it-service-desk' } });
     const d = await svc.plan({ blueprint, dryRun: true });
     expect(d.warnings.some((w) => /ITS was not found/.test(w))).toBe(true);
     await expect(svc.apply({ blueprint, planHash: d.planHash, confirm: confirmPhrase(d.planHash, site.siteUrl) })).rejects.toThrow(/not signed off/);
@@ -174,51 +197,51 @@ describe('build service', () => {
 
   it('signs off only the reviewed blueprint, with the exact phrase, and records who decided what', async () => {
     const { svc, blueprint, workdir } = setup({ bp: base });
-    const r = svc.signOffReview({ blueprint });
+    const r = await svc.signOffReview({ blueprint });
     expect(r.signedOff).toBe(false);
     expect(r.outcomes.length).toBe(base.outcomes.length);
     expect(readFileSync(join(workdir, r.files.markdown), 'utf8')).toContain(signOffPhrase(r.signHash, base.id));
 
     const phrase = signOffPhrase(r.signHash, base.id);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: 'yes' })).toThrow(/exactly/);
-    expect(() => svc.signOff({ blueprint, signHash: 'deadbeefdeadbeef', confirm: phrase })).toThrow(/changed since it was reviewed/);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: ['nope'] })).toThrow(/no outcome nope/);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: base.outcomes.map((o) => o.id) })).toThrow(/nothing to sign off/);
-    expect(svc.loadBlueprint(blueprint).decisions).toHaveLength(base.decisions.length);
+    await expect(svc.signOff({ blueprint, signHash: r.signHash, confirm: 'yes' })).rejects.toThrow(/exactly/);
+    await expect(svc.signOff({ blueprint, signHash: 'deadbeefdeadbeef', confirm: phrase })).rejects.toThrow(/changed since it was reviewed/);
+    await expect(svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: ['nope'] })).rejects.toThrow(/no outcome nope/);
+    await expect(svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: base.outcomes.map((o) => o.id) })).rejects.toThrow(/nothing to sign off/);
+    expect((await svc.loadBlueprint(blueprint)).decisions).toHaveLength(base.decisions.length);
 
     const deferred = base.outcomes.at(-1)!.id;
-    const s = svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, defer: [deferred], comment: 'sandbox review' });
+    const s = await svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, defer: [deferred], comment: 'sandbox review' });
     expect(s).toMatchObject({ signedOff: true, by: 'tester', deferred: [deferred], rejected: [] });
     expect(s.confirmed).toHaveLength(base.outcomes.length - 1);
-    const bp = svc.loadBlueprint(blueprint);
+    const bp = await svc.loadBlueprint(blueprint);
     expect(bp.outcomes.find((o) => o.id === deferred)?.status).toBe('deferred');
     expect(bp.outcomes.filter((o) => o.status === 'confirmed')).toHaveLength(base.outcomes.length - 1);
     const so = bp.decisions.at(-1)!;
     expect(so).toMatchObject({ action: 'sign-off', by: 'tester', subject: { kind: 'blueprint', id: base.id }, comment: 'sandbox review', after: { signHash: r.signHash } });
     expect(bp.decisions.filter((d) => d.subject.kind === 'outcome')).toHaveLength(base.outcomes.length);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/changed since it was reviewed/);
-    const signed1 = svc.signOffReview({ blueprint });
+    await expect(svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).rejects.toThrow(/changed since it was reviewed/);
+    const signed1 = await svc.signOffReview({ blueprint });
     expect(signed1.signedOff).toBe(true);
-    expect(() => svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id) })).toThrow(/already signed off.*reject, defer or reinstate/);
+    await expect(svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id) })).rejects.toThrow(/already signed off.*reject, defer or reinstate/);
 
     // Amend: defer one more outcome, then reinstate both; each step is a reviewed, recorded sign-off.
     const second = base.outcomes[0]!.id;
-    const am = svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id), defer: [second] });
+    const am = await svc.signOff({ blueprint, signHash: signed1.signHash, confirm: signOffPhrase(signed1.signHash, base.id), defer: [second] });
     expect(am).toMatchObject({ signedOff: true, deferred: expect.arrayContaining([deferred, second]) });
-    expect(svc.loadBlueprint(blueprint).decisions.at(-1)).toMatchObject({ action: 'sign-off', after: { amends: true } });
-    const r3 = svc.signOffReview({ blueprint });
-    const back = svc.signOff({ blueprint, signHash: r3.signHash, confirm: signOffPhrase(r3.signHash, base.id), reinstate: [deferred, second] });
+    expect((await svc.loadBlueprint(blueprint)).decisions.at(-1)).toMatchObject({ action: 'sign-off', after: { amends: true } });
+    const r3 = await svc.signOffReview({ blueprint });
+    const back = await svc.signOff({ blueprint, signHash: r3.signHash, confirm: signOffPhrase(r3.signHash, base.id), reinstate: [deferred, second] });
     expect(back.deferred).toEqual([]);
     expect(back.confirmed).toHaveLength(base.outcomes.length);
-    expect(() => svc.signOff({ blueprint, signHash: r3.signHash, confirm: 'x', defer: [second], reinstate: [second] })).toThrow();
+    await expect(svc.signOff({ blueprint, signHash: r3.signHash, confirm: 'x', defer: [second], reinstate: [second] })).rejects.toThrow();
 
     // A later design change makes it stale; a fresh review has a new hash and the old one is refused.
-    svc.setSpace({ blueprint, mode: 'existing', key: 'ZZREF' });
-    expect(svc.signOffReview({ blueprint }).signedOff).toBe(false);
-    const again = svc.signOffReview({ blueprint });
+    await svc.setSpace({ blueprint, mode: 'existing', key: 'ZZREF' });
+    expect((await svc.signOffReview({ blueprint })).signedOff).toBe(false);
+    const again = await svc.signOffReview({ blueprint });
     expect(again.signHash).not.toBe(r.signHash);
-    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/changed since it was reviewed/);
-    expect(svc.signOff({ blueprint, signHash: again.signHash, confirm: signOffPhrase(again.signHash, base.id) }).signedOff).toBe(true);
+    await expect(svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).rejects.toThrow(/changed since it was reviewed/);
+    expect((await svc.signOff({ blueprint, signHash: again.signHash, confirm: signOffPhrase(again.signHash, base.id) })).signedOff).toBe(true);
   });
 
   it('breaks the work into one epic per capability', async () => {

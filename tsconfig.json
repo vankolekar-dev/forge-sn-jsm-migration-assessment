@@ -26,6 +26,9 @@
       "path": "packages/acceptance"
     },
     {
+      "path": "packages/workflow"
+    },
+    {
       "path": "packages/mcp-server"
     }
   ]

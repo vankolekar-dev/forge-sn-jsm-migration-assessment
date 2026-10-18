@@ -50,7 +50,7 @@ async function main() {
   const typed = async (phrase: (target: string) => string, what: string) => {
     const given = a.one('confirm');
     if (given) return given;
-    const target = svc.siteFor(svc.loadBlueprint(blueprint!), site);
+    const target = svc.siteFor(await svc.loadBlueprint(blueprint!), site);
     if (!target || !process.stdin.isTTY) throw new Error(`--confirm "${phrase('<site>')}" is required`);
     const rl = createInterface({ input: process.stdin, output: process.stderr });
     const answer = await rl.question(`Review the ${what}, then type exactly:\n  ${phrase(target)}\n> `);
@@ -64,27 +64,27 @@ async function main() {
 
   let out: unknown;
   switch (a.cmd) {
-    case 'summary': out = svc.summary(base); break;
+    case 'summary': out = await svc.summary(base); break;
     case 'space': {
       const mode = a.one('mode');
       if (mode !== 'new' && mode !== 'existing') throw new Error('--mode new|existing is required');
       const opt = (k: string) => a.one(k);
-      out = svc.setSpace({ blueprint, mode, ...(opt('id') ? { designId: opt('id')! } : {}), ...(opt('key') ? { key: opt('key')! } : {}), ...(opt('name') ? { name: opt('name')! } : {}), ...(opt('reason') ? { reason: opt('reason')! } : {}) });
+      out = await svc.setSpace({ blueprint, mode, ...(opt('id') ? { designId: opt('id')! } : {}), ...(opt('key') ? { key: opt('key')! } : {}), ...(opt('name') ? { name: opt('name')! } : {}), ...(opt('reason') ? { reason: opt('reason')! } : {}) });
       break;
     }
-    case 'review': out = svc.signOffReview({ blueprint }); break;
+    case 'review': out = await svc.signOffReview({ blueprint }); break;
     case 'sign-off': {
       const signHash = a.one('hash');
       if (!signHash) throw new Error('--hash <signHash> from review is required');
       let confirm = a.one('confirm');
       if (!confirm) {
-        const bp = svc.loadBlueprint(blueprint);
+        const bp = await svc.loadBlueprint(blueprint);
         if (!process.stdin.isTTY) throw new Error('--confirm "SIGN OFF <signHash> FOR <blueprintId>" is required');
         const rl = createInterface({ input: process.stdin, output: process.stderr });
         confirm = await rl.question(`Review the outcomes, then type exactly:\n  ${signOffPhrase(signHash, bp.id)}\n> `);
         rl.close();
       }
-      out = svc.signOff({ blueprint, signHash, confirm, reject: a.many('reject'), defer: a.many('defer'), reinstate: a.many('reinstate'), ...(a.one('comment') ? { comment: a.one('comment')! } : {}) });
+      out = await svc.signOff({ blueprint, signHash, confirm, reject: a.many('reject'), defer: a.many('defer'), reinstate: a.many('reinstate'), ...(a.one('comment') ? { comment: a.one('comment')! } : {}) });
       break;
     }
     case 'plan': out = await svc.plan(base); break;
@@ -94,7 +94,7 @@ async function main() {
       if (!planHash) throw new Error('--hash <planHash> from a dry-run is required');
       let confirm = a.one('confirm');
       if (!confirm) {
-        const target = svc.siteFor(svc.loadBlueprint(blueprint), site);
+        const target = svc.siteFor(await svc.loadBlueprint(blueprint), site);
         if (!target || !process.stdin.isTTY) throw new Error('--confirm "APPLY <planHash> TO <site>" is required');
         const rl = createInterface({ input: process.stdin, output: process.stderr });
         confirm = await rl.question(`Review the dry-run, then type exactly:\n  ${confirmPhrase(planHash, target)}\n> `);
@@ -112,9 +112,9 @@ async function main() {
       break;
     }
     case 'verify': out = await svc.verify(base); break;
-    case 'status': out = svc.status(base); break;
+    case 'status': out = await svc.status(base); break;
     case 'breakdown': out = await svc.workBreakdown(base); break;
-    case 'test-plan': out = svc.acceptancePlan({ blueprint, ...(site ? { site } : {}), outcomeIds: a.many('outcome') }); break;
+    case 'test-plan': out = await svc.acceptancePlan({ blueprint, ...(site ? { site } : {}), outcomeIds: a.many('outcome') }); break;
     case 'test': {
       const runHash = a.one('hash');
       if (!runHash) throw new Error('--hash <runHash> from test-plan is required');
