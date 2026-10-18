@@ -7,7 +7,7 @@ import {
   cleanupTestData, planAcceptance, renderAcceptancePlan, renderAcceptanceResult, runAcceptance,
 } from '@snjsm/acceptance';
 import {
-  apply, assertStateMatches, confirmManual, isSignedOff, newState, pendingManual, plan, readState, renderApply, renderManual,
+  apply, assertStateMatches, confirmManual, hashOf, isSignedOff, specHashOf, newState, pendingManual, plan, readState, renderApply, renderManual,
   renderPlan, renderVerify, scopeElements, strategyOf, verify, withLock, workBreakdown, writeState,
   type BuildOptions, type BuildState, type Plan, type Scope, type SiteApi,
 } from '@snjsm/builder';
@@ -51,6 +51,41 @@ const hostOf = (site: string) => new URL(site).hostname;
 export const confirmPhrase = (planHash: string, site: string) => `APPLY ${planHash} TO ${site}`;
 export const testPhrase = (runHash: string, site: string) => `TEST ${runHash} ON ${site}`;
 export const cleanupPhrase = (runId: string, site: string) => `CLEANUP ${runId} ON ${site}`;
+export const signOffPhrase = (signHash: string, blueprintId: string) => `SIGN OFF ${signHash} FOR ${blueprintId}`;
+
+/** Everything a sign-off approves: outcomes and their criteria, catalogue versions, and the design. Any change gives a new hash. */
+function signOffContent(bp: Blueprint) {
+  return {
+    id: bp.id,
+    capabilities: bp.capabilities.map((c) => [c.capabilityId, c.catalogueVersion, c.status]),
+    outcomes: bp.outcomes.map((o) => ({ id: o.id, statement: o.statement, parameters: o.parameters, acceptance: o.acceptance, priority: o.priority, status: o.status })),
+    design: bp.design.map((el) => [el.id, specHashOf(el)]),
+  };
+}
+
+const OPEN_OUTCOME = new Set(['proposed', 'changed']);
+
+function renderSignOff(bp: Blueprint, signHash: string): string {
+  const lines = [
+    `# Sign-off review: ${bp.name}`,
+    '',
+    `Blueprint \`${bp.id}\` · signHash \`${signHash}\` · ${bp.outcomes.length} outcomes · ${bp.design.length} design elements`,
+    '',
+    `Capabilities: ${bp.capabilities.map((c) => `${c.capabilityId} v${c.catalogueVersion} (${c.status})`).join(', ')}`,
+    '',
+  ];
+  for (const o of bp.outcomes) {
+    lines.push(`## ${o.category}: ${o.statement}`, '', `\`${o.id}\` · ${o.priority} · now ${o.status}`, '');
+    const params = Object.entries(o.parameters);
+    if (params.length) lines.push(`Parameters: ${params.map(([k, v]) => `${k} = ${typeof v === 'object' && v && 'value' in v ? `${(v as { value: number }).value} ${(v as { unit: string }).unit}` : JSON.stringify(v)}`).join(', ')}`, '');
+    for (const ac of o.acceptance) {
+      lines.push(`- **${ac.id.split('.').at(-1)}** (${ac.verification}) Given ${ac.given}; when ${ac.when}; then ${ac.then.join('; ')}.`);
+    }
+    lines.push('');
+  }
+  lines.push('---', '', 'Every outcome that is still proposed is confirmed unless it is named as rejected or deferred.', '', `To sign off, the person accountable for these outcomes types exactly: \`${signOffPhrase(signHash, bp.id)}\``);
+  return lines.join('\n');
+}
 
 export function configFromEnv(env: NodeJS.ProcessEnv, clientFor: ServiceConfig['clientFor'], cwd = process.cwd()): ServiceConfig {
   const list = (v?: string) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean).map(normaliseSite);
@@ -173,6 +208,67 @@ export class BuildService {
     return {
       designId: el.id, before, after, signedOff: isSignedOff(parsed.data),
       next: `${wasSigned ? 'The earlier sign-off no longer covers the design: sign off again before apply. ' : ''}Run build_plan with dryRun to check the space on the site.`,
+    };
+  }
+
+  /** Offline: what a sign-off would approve, pinned in a signHash a person must quote back. */
+  signOffReview(i: { blueprint: string }) {
+    const bp = this.loadBlueprint(i.blueprint);
+    const signHash = hashOf(signOffContent(bp));
+    const file = this.write(`signoff/${bp.id}-${signHash.slice(0, 12)}.md`, renderSignOff(bp, signHash));
+    return {
+      blueprint: bp.id, signHash, signedOff: isSignedOff(bp),
+      capabilities: bp.capabilities.map((c) => ({ id: c.capabilityId, catalogueVersion: c.catalogueVersion, status: c.status })),
+      outcomes: bp.outcomes.map((o) => ({
+        id: o.id, category: o.category, statement: o.statement, priority: o.priority, status: o.status, parameters: o.parameters,
+        criteria: o.acceptance.map((ac) => ({ id: ac.id, verification: ac.verification, given: ac.given, when: ac.when, then: ac.then })),
+      })),
+      designElements: bp.design.length,
+      files: { markdown: file },
+      signOff: `Show these outcomes to the person accountable for them. To sign off they type exactly: ${signOffPhrase(signHash, bp.id)} (open outcomes are confirmed unless named as rejected or deferred).`,
+    };
+  }
+
+  /** Record a person's sign-off: one decision per outcome, then the blueprint sign-off. Refused if anything changed since the review. */
+  signOff(i: { blueprint: string; signHash: string; confirm: string; reject?: string[]; defer?: string[]; comment?: string }) {
+    const bp = this.loadBlueprint(i.blueprint);
+    if (isSignedOff(bp)) throw new Error(`${bp.id} is already signed off and unchanged since`);
+    const current = hashOf(signOffContent(bp));
+    if (current !== i.signHash) throw new Error(`the blueprint changed since it was reviewed (signHash is now ${current}): run signoff_review again and re-check the outcomes`);
+    const phrase = signOffPhrase(current, bp.id);
+    if (i.confirm.trim() !== phrase) throw new Error(`to sign off, the person must type exactly: ${phrase}`);
+
+    const ids = new Set(bp.outcomes.map((o) => o.id));
+    const reject = new Set(i.reject ?? []);
+    const defer = new Set(i.defer ?? []);
+    for (const id of [...reject, ...defer]) if (!ids.has(id)) throw new Error(`no outcome ${id} in ${bp.id}`);
+    const both = [...reject].filter((id) => defer.has(id));
+    if (both.length) throw new Error(`an outcome cannot be both rejected and deferred: ${both.join(', ')}`);
+
+    const at = new Date().toISOString();
+    const stamp = at.replace(/[^0-9]/g, '');
+    const decisions: Blueprint['decisions'] = [];
+    const outcomes = bp.outcomes.map((o) => {
+      const to = reject.has(o.id) ? 'rejected' : defer.has(o.id) ? 'deferred' : OPEN_OUTCOME.has(o.status) ? 'confirmed' : o.status;
+      if (to === o.status) return o;
+      const action = to === 'rejected' ? 'reject' : to === 'deferred' ? 'defer' : 'confirm';
+      decisions.push({ id: `d.outcome.${o.id}.${stamp}`, at, by: this.cfg.by, subject: { kind: 'outcome', id: o.id }, action, before: { status: o.status }, after: { status: to } });
+      return { ...o, status: to };
+    });
+    const by = (s: string) => outcomes.filter((o) => o.status === s).map((o) => o.id);
+    const result = { confirmed: by('confirmed'), rejected: by('rejected'), deferred: by('deferred') };
+    if (!result.confirmed.length) throw new Error('nothing to sign off: every outcome would be rejected or deferred');
+    decisions.push({
+      id: `d.sign-off.${bp.id}.${stamp}`, at, by: this.cfg.by, subject: { kind: 'blueprint', id: bp.id }, action: 'sign-off',
+      ...(i.comment ? { comment: i.comment } : {}), after: { signHash: current, ...result },
+    });
+
+    const parsed = Blueprint.safeParse({ ...bp, updatedAt: at, outcomes, decisions: [...bp.decisions, ...decisions] });
+    if (!parsed.success) throw new Error(`sign-off rejected: ${parsed.error.issues.slice(0, 3).map((x) => `${x.path.join('.')}: ${x.message}`).join('; ')}`);
+    writeFileSync(this.path(i.blueprint), JSON.stringify(parsed.data, null, 2));
+    return {
+      blueprint: bp.id, signedOff: isSignedOff(parsed.data), by: this.cfg.by, at, signHash: current, ...result,
+      next: `Signed off. Any later design change makes the sign-off stale.${result.rejected.length || result.deferred.length ? ' Rejected and deferred outcomes are excluded from acceptance tests; their design elements are still in the blueprint.' : ''} Run build_plan with dryRun before the next apply.`,
     };
   }
 

@@ -8,7 +8,7 @@ import { snapshotFromXml } from '@snjsm/collector';
 import { analyse } from '@snjsm/analyser';
 import { FakeSite } from '@snjsm/builder';
 import type { Blueprint } from '@snjsm/model';
-import { BuildService, configFromEnv, confirmPhrase, createServer } from '@snjsm/mcp-server';
+import { BuildService, configFromEnv, confirmPhrase, createServer, signOffPhrase } from '@snjsm/mcp-server';
 
 const xml = readFileSync(join(__dirname, '../../collector/test/fixtures/enterprise-update-set.xml'), 'utf8');
 const base = analyse(snapshotFromXml([{ name: 'enterprise.xml', xml }]), { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
@@ -134,6 +134,41 @@ describe('build service', () => {
     expect(site.writes).toHaveLength(0);
   });
 
+  it('signs off only the reviewed blueprint, with the exact phrase, and records who decided what', async () => {
+    const { svc, blueprint, workdir } = setup({ bp: base });
+    const r = svc.signOffReview({ blueprint });
+    expect(r.signedOff).toBe(false);
+    expect(r.outcomes.length).toBe(base.outcomes.length);
+    expect(readFileSync(join(workdir, r.files.markdown), 'utf8')).toContain(signOffPhrase(r.signHash, base.id));
+
+    const phrase = signOffPhrase(r.signHash, base.id);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: 'yes' })).toThrow(/exactly/);
+    expect(() => svc.signOff({ blueprint, signHash: 'deadbeefdeadbeef', confirm: phrase })).toThrow(/changed since it was reviewed/);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: ['nope'] })).toThrow(/no outcome nope/);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, reject: base.outcomes.map((o) => o.id) })).toThrow(/nothing to sign off/);
+    expect(svc.loadBlueprint(blueprint).decisions).toHaveLength(base.decisions.length);
+
+    const deferred = base.outcomes.at(-1)!.id;
+    const s = svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase, defer: [deferred], comment: 'sandbox review' });
+    expect(s).toMatchObject({ signedOff: true, by: 'tester', deferred: [deferred], rejected: [] });
+    expect(s.confirmed).toHaveLength(base.outcomes.length - 1);
+    const bp = svc.loadBlueprint(blueprint);
+    expect(bp.outcomes.find((o) => o.id === deferred)?.status).toBe('deferred');
+    expect(bp.outcomes.filter((o) => o.status === 'confirmed')).toHaveLength(base.outcomes.length - 1);
+    const so = bp.decisions.at(-1)!;
+    expect(so).toMatchObject({ action: 'sign-off', by: 'tester', subject: { kind: 'blueprint', id: base.id }, comment: 'sandbox review', after: { signHash: r.signHash } });
+    expect(bp.decisions.filter((d) => d.subject.kind === 'outcome')).toHaveLength(base.outcomes.length);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/already signed off/);
+
+    // A later design change makes it stale; a fresh review has a new hash and the old one is refused.
+    svc.setSpace({ blueprint, mode: 'existing', key: 'ZZREF' });
+    expect(svc.signOffReview({ blueprint }).signedOff).toBe(false);
+    const again = svc.signOffReview({ blueprint });
+    expect(again.signHash).not.toBe(r.signHash);
+    expect(() => svc.signOff({ blueprint, signHash: r.signHash, confirm: phrase })).toThrow(/changed since it was reviewed/);
+    expect(svc.signOff({ blueprint, signHash: again.signHash, confirm: signOffPhrase(again.signHash, base.id) }).signedOff).toBe(true);
+  });
+
   it('breaks the work into one epic per capability', async () => {
     const { svc, blueprint } = setup();
     const w = await svc.workBreakdown({ blueprint });
@@ -150,7 +185,7 @@ describe('MCP protocol', () => {
     const client = new Client({ name: 'test', version: '0' });
     await client.connect(b);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['acceptance_cleanup', 'acceptance_plan', 'acceptance_run', 'blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['acceptance_cleanup', 'acceptance_plan', 'acceptance_run', 'blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown', 'signoff_record', 'signoff_review']);
     expect(tools.find((t) => t.name === 'build_plan')?.annotations?.readOnlyHint).toBe(true);
 
     const s = await client.callTool({ name: 'blueprint_summary', arguments: { blueprint } });

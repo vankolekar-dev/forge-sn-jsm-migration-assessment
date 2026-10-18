@@ -39,6 +39,25 @@ export function registerTools(server: McpServer, svc: BuildService): void {
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   }, run((a) => svc.setSpace(a)));
 
+  server.registerTool('signoff_review', {
+    title: 'Review outcomes for sign-off',
+    description: 'Offline: list every outcome with its given/when/then criteria, parameters, catalogue versions and design size, pinned in a signHash. Writes a review to signoff/. Show it to the person accountable for the outcomes before signoff_record.',
+    inputSchema: { blueprint }, annotations: { readOnlyHint: true },
+  }, run((a) => svc.signOffReview(a)));
+
+  server.registerTool('signoff_record', {
+    title: 'Record sign-off',
+    description: 'Record that a person signed off the reviewed outcomes: confirms open outcomes (except those named in reject/defer), logs one decision per outcome and the blueprint sign-off with who and when. Never call this on your own initiative: only pass confirm when the person has typed "SIGN OFF <signHash> FOR <blueprintId>" themselves. Refused if the blueprint changed since signoff_review.',
+    inputSchema: {
+      blueprint, signHash: z.string().describe('signHash from signoff_review'),
+      confirm: z.string().describe('The exact phrase typed by the person: SIGN OFF <signHash> FOR <blueprintId>'),
+      reject: z.array(z.string()).optional().describe('Outcome ids the person rejects'),
+      defer: z.array(z.string()).optional().describe('Outcome ids the person defers'),
+      comment: z.string().optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, run((a) => svc.signOff(a)));
+
   server.registerTool('build_plan', {
     title: 'Plan or dry-run the build',
     description: 'Plan the JSM build from the blueprint design. Offline (default) uses only the state file. With dryRun=true it reads the site with a read-only client to decide adopt / create / update / guided per element and returns the planHash a person must approve before build_apply. Writes the plan to plans/.',

@@ -2,6 +2,8 @@
  * Build CLI over the same service (and gates) as the MCP server.
  *
  *   npm run jsm -- summary   --blueprint fixture/blueprint.json
+ *   npm run jsm -- review    --blueprint fixture/blueprint.json                          offline sign-off review (signHash)
+ *   npm run jsm -- sign-off  --blueprint … --hash <signHash> [--reject id] [--defer id] [--comment …] [--confirm "SIGN OFF <hash> FOR <blueprintId>"]
  *   npm run jsm -- plan      --blueprint fixture/blueprint.json [--cap c] [--el id]     offline, from the state file
  *   npm run jsm -- dry-run   --blueprint fixture/blueprint.json --site x.atlassian.net  read-only against the site
  *   npm run jsm -- apply     --blueprint … --site … --hash <planHash> [--confirm "APPLY <hash> TO <site>"]
@@ -21,7 +23,7 @@
 import { createInterface } from 'node:readline/promises';
 import { AtlassianClient } from '@snjsm/atlassian';
 import { loadPersonaAuth, loadSiteAuth } from '@snjsm/atlassian/node';
-import { BuildService, cleanupPhrase, configFromEnv, confirmPhrase, testPhrase, type BlueprintInput } from '@snjsm/mcp-server';
+import { BuildService, cleanupPhrase, configFromEnv, confirmPhrase, signOffPhrase, testPhrase, type BlueprintInput } from '@snjsm/mcp-server';
 
 function args(argv: string[]) {
   const [cmd, ...rest] = argv;
@@ -68,6 +70,21 @@ async function main() {
       if (mode !== 'new' && mode !== 'existing') throw new Error('--mode new|existing is required');
       const opt = (k: string) => a.one(k);
       out = svc.setSpace({ blueprint, mode, ...(opt('id') ? { designId: opt('id')! } : {}), ...(opt('key') ? { key: opt('key')! } : {}), ...(opt('name') ? { name: opt('name')! } : {}), ...(opt('reason') ? { reason: opt('reason')! } : {}) });
+      break;
+    }
+    case 'review': out = svc.signOffReview({ blueprint }); break;
+    case 'sign-off': {
+      const signHash = a.one('hash');
+      if (!signHash) throw new Error('--hash <signHash> from review is required');
+      let confirm = a.one('confirm');
+      if (!confirm) {
+        const bp = svc.loadBlueprint(blueprint);
+        if (!process.stdin.isTTY) throw new Error('--confirm "SIGN OFF <signHash> FOR <blueprintId>" is required');
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        confirm = await rl.question(`Review the outcomes, then type exactly:\n  ${signOffPhrase(signHash, bp.id)}\n> `);
+        rl.close();
+      }
+      out = svc.signOff({ blueprint, signHash, confirm, reject: a.many('reject'), defer: a.many('defer'), ...(a.one('comment') ? { comment: a.one('comment')! } : {}) });
       break;
     }
     case 'plan': out = await svc.plan(base); break;
@@ -120,7 +137,7 @@ async function main() {
 }
 
 function readHelp() {
-  return 'usage: npm run jsm -- <summary|space|plan|dry-run|apply|manual|confirm|verify|status|breakdown|test-plan|test|test-cleanup> --blueprint <path> [--site <site>] [--cap <id>] [--el <id>] [--json]';
+  return 'usage: npm run jsm -- <summary|space|review|sign-off|plan|dry-run|apply|manual|confirm|verify|status|breakdown|test-plan|test|test-cleanup> --blueprint <path> [--site <site>] [--cap <id>] [--el <id>] [--json]';
 }
 
 main().catch((e) => { console.error(`error: ${(e as Error).message}`); process.exit(1); });
