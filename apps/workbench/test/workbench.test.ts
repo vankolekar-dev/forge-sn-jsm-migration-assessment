@@ -31,14 +31,14 @@ function setup(opts: { collectBudgetMs?: number; fakeClock?: boolean } = {}) {
     if (clock.down) throw new TypeError('fetch failed');
     return sn.fetch(url, init);
   };
-  const queue: { msg: JobMessage; key: string }[] = [];
+  const queue: { msg: JobMessage; key: string; delay?: number }[] = [];
   const actors: Actor[] = [];
   const who = { admin: true };
   const wb = new Workbench({
     kv,
     client: (actor, ro) => { actors.push(actor); return forgeView(site.client(ro)); },
     isAdmin: async () => who.admin,
-    enqueue: async (msg, key) => { queue.push({ msg, key }); },
+    enqueue: async (msg, key, delay) => { queue.push({ msg, key, ...(delay ? { delay } : {}) }); },
     snFetch,
     sleep: async () => {},
     ...(opts.fakeClock ? { now: () => new Date(clock.t) } : {}),
@@ -396,5 +396,62 @@ describe('ServiceNow demo connection (basic auth) and request log', () => {
     expect(entries.length).toBeLessThanOrEqual(250);
     expect(entries[0]).toMatchObject({ kind: 'event', message: expect.stringMatching(/done: blueprint .* from \d+ records/) });
     expect(t.sn.requests.every((r) => r.method === 'GET')).toBe(true);
+  });
+});
+
+describe('ServiceNow collection and Forge limits', () => {
+  it('stores pages compressed and per table, and waits out a Forge limit instead of failing', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), { profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, usageDays: 30 });
+    const job = await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    await t.drain(); await t.drain();
+    const pages = await t.wb.store.list(`collections/${job.id}/p/`);
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages.every((k) => /\/p\/[a-z0-9_]+\/\d{6}\.gz$/.test(k))).toBe(true);
+
+    // The installation goes over a Forge limit for a while: the step is queued again with a delay, twice.
+    const set = t.kv.set.bind(t.kv);
+    let refusals = 2;
+    t.kv.set = async (key, value, o) => {
+      if (key.includes('collections') && refusals > 0) { refusals--; throw new Error('Limits for the current installation have been exceeded'); }
+      return set(key, value, o);
+    };
+    const waiting = await t.drain();
+    expect(waiting).toMatchObject({ status: 'running', limitRetries: 1 });
+    expect(t.queue[0]).toMatchObject({ delay: 300 });
+    expect((await t.drain())).toMatchObject({ status: 'running', limitRetries: 2 });
+    let last: Job | undefined;
+    while (t.queue.length) last = await t.drain();
+    expect(last).toMatchObject({ id: job.id, status: 'done' });
+    const { entries } = await t.wb.snLogs(t.as(t.admin), { profile: 'basic' });
+    expect(entries.some((e) => e.kind === 'event' && /Forge limit reached.*retry 1 of 6/.test(e.message))).toBe(true);
+  });
+
+  it('removes the stored pages of earlier collections when a new one starts', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), { profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, usageDays: 30 });
+    const first = await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    await t.drain(); await t.drain();
+    t.clock.down = true; await t.drain(); t.clock.down = false;
+    expect((await t.wb.store.list(`collections/${first.id}/`)).length).toBeGreaterThan(0);
+    await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    expect(await t.wb.store.list(`collections/${first.id}/`)).toEqual([]);
+    await expect(t.wb.resumeCollection(t.as(t.admin), { jobId: first.id })).rejects.toThrow(/nothing to resume|already/);
+  });
+
+  it('fails with a resumable, plain message once the limit outlasts the retries', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), { profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, usageDays: 30 });
+    await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    await t.drain();
+    const set = t.kv.set.bind(t.kv);
+    t.kv.set = async (key, value, o) => {
+      if (key.includes('collections')) throw new Error('Limits for the current installation have been exceeded');
+      return set(key, value, o);
+    };
+    let last: Job | undefined;
+    while (t.queue.length) last = await t.drain();
+    expect(last).toMatchObject({ status: 'failed', limitRetries: 6 });
+    expect(last!.error).toMatch(/Forge limits for this installation were exceeded.*resume/);
   });
 });

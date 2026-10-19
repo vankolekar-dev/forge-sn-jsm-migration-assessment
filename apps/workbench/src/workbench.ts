@@ -7,6 +7,7 @@ import {
   type Aggregate, type CollectCursor, type CollectSink, type HttpFetch, type SnRecord, type TokenProvider,
 } from '@snjsm/collector';
 import { analyse, blueprintIdFor } from '@snjsm/analyser';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { CHUNK_CHARS, KvStore, type Kv } from './kv-store';
 import { jsmGaps, snInventory, snItems } from './views';
 
@@ -51,7 +52,8 @@ export interface Platform {
   /** Whether the calling user is a Jira administrator (checked as that user). */
   isAdmin(): Promise<boolean>;
   /** Queue a job; jobs with the same concurrency key run one at a time. */
-  enqueue(msg: JobMessage, concurrencyKey: string): Promise<void>;
+  /** Queue a job message; `delaySeconds` (max 900) defers it, used to back off from platform limits. */
+  enqueue(msg: JobMessage, concurrencyKey: string, delaySeconds?: number): Promise<void>;
   now?(): Date;
 }
 
@@ -70,6 +72,10 @@ export interface Job {
   step?: number; heartbeatAt?: string;
   /** Within the phase: item `index` of `total` (pulls, aggregates or CI classes); `records` only once done. */
   progress?: Progress;
+  /** Times this collection backed off from a platform limit (reset on each step that moves). */
+  limitRetries?: number;
+  /** Set while waiting out a platform limit. */
+  waitingUntil?: string;
   collect?: { customer: string; instance: string; replace: boolean; profile?: Profile };
 }
 
@@ -101,7 +107,7 @@ const PROFILES: Record<Profile, { conn: string; secret: string; log: string }> =
 /** A ServiceNow request (`kind: 'http'`) or a workbench event, newest last. */
 export type LogEntry = ({ kind: 'http' } & RequestLogEntry) | { kind: 'event'; at: string; level: 'info' | 'error'; message: string };
 const LOG_KEEP = 250;
-const LOG_FLUSH_MS = 10_000;
+const LOG_FLUSH_MS = 30_000;
 
 /** Buffers log entries in memory and appends them to the stored ring when flushed (each flush is one write). */
 class SnLog {
@@ -197,9 +203,21 @@ const jobsPrefix = (blueprintId: string) => `jobs/${safeName(blueprintId)}/`;
 interface IndexEntry { id: string; name: string; customer: string; uploadedBy: string; uploadedAt: string; chars: number; outcomes: number; design: number; signedOff: boolean; source?: string }
 
 /** Collected pages and aggregates for one collection, in the store, so a collection survives between invocations. */
+/**
+ * Collected pages in app storage: gzip-compressed (ServiceNow JSON shrinks several-fold), keyed per table so reading
+ * one table never reads the others. Writing the same page again overwrites it, so replaying from an older cursor is safe.
+ */
 class StoreSink implements CollectSink {
   constructor(private readonly store: KvStore, private readonly prefix: string) {}
-  async page(n: number, records: SnRecord[]) { await this.store.write(`${this.prefix}p/${String(n).padStart(6, '0')}.json`, JSON.stringify(records)); }
+  private key(table: string, n: number) { return `${this.prefix}p/${table}/${String(n).padStart(6, '0')}.gz`; }
+  private async readPage(k: string): Promise<SnRecord[]> {
+    const t = await this.store.read(k);
+    return t ? (JSON.parse(gunzipSync(Buffer.from(t, 'base64')).toString('utf8')) as SnRecord[]) : [];
+  }
+  async page(n: number, records: SnRecord[]) {
+    if (!records.length) return;
+    await this.store.write(this.key(records[0]!.table, n), gzipSync(Buffer.from(JSON.stringify(records), 'utf8')).toString('base64'));
+  }
   async aggregates(): Promise<Aggregate[]> { const t = await this.store.read(`${this.prefix}aggregates.json`); return t ? (JSON.parse(t) as Aggregate[]) : []; }
   async aggregate(a: Aggregate) {
     const all = (await this.aggregates()).filter((x) => x.id !== a.id);
@@ -208,12 +226,25 @@ class StoreSink implements CollectSink {
   async aggregateById(id: string) { return (await this.aggregates()).find((a) => a.id === id); }
   async all(): Promise<SnRecord[]> {
     const out: SnRecord[] = [];
-    for (const k of await this.store.list(`${this.prefix}p/`)) out.push(...(JSON.parse((await this.store.read(k)) ?? '[]') as SnRecord[]));
+    for (const k of await this.store.list(`${this.prefix}p/`)) for (const r of await this.readPage(k)) out.push(r);
     return out;
   }
-  async records(table: string) { return (await this.all()).filter((r) => r.table === table); }
+  async records(table: string) {
+    const out: SnRecord[] = [];
+    for (const k of await this.store.list(`${this.prefix}p/${table}/`)) for (const r of await this.readPage(k)) out.push(r);
+    return out;
+  }
   async clear() { for (const k of await this.store.list(this.prefix)) await this.store.remove(k); }
 }
+
+/** Forge refuses storage or other calls when the installation is over a limit; that passes, so back off and retry. */
+export function isPlatformLimit(e: unknown): boolean {
+  const m = (e as Error)?.message ?? String(e);
+  return /limits for the current installation have been exceeded|rate limit|too many requests|\b429\b/i.test(m);
+}
+const LIMIT_RETRIES = 6;
+const LIMIT_DELAY_S = 300;
+const CURSOR_EVERY_MS = 15_000;
 
 export class Workbench {
   readonly store: KvStore;
@@ -752,9 +783,13 @@ export class Workbench {
       id: this.newId(), op: 'collect', blueprintId: COLLECT, by: caller.accountId, status: 'queued', queuedAt: this.now().toISOString(),
       collect: { customer: c.customer, instance: c.instance, replace: Boolean(p.replace), profile },
     };
+    // A new collection supersedes earlier ones: drop their stored pages (they count against app storage).
+    const leftovers = (await this.store.list('collections/')).filter((k) => !k.startsWith(`collections/${job.id}/`));
+    for (const k of leftovers) await this.store.remove(k);
     await this.saveJob(job);
     await this.pruneJobs(COLLECT);
     const log = this.snLog(profile);
+    if (leftovers.length) log.event(`removed ${leftovers.length} stored items of earlier collections (they can no longer be resumed)`);
     log.event(`collection ${job.id} queued for ${c.instance}`);
     await log.flush();
     await this.enqueueCollect(job, 0);
@@ -818,13 +853,16 @@ export class Workbench {
         phase: x.phase, index: x.index, total: x.phase === 'fill' ? (x.fill?.length ?? 0) : totals[x.phase], pages: x.pages, warnings: x.warnings.length,
       });
       let moved = false;
+      let cursorSavedAt = 0;
       let warned = from.warnings.length;
       const cursor = await collectSteps(client, from, sink, {
         usageDays: c.usageDays,
         // Every step reaches at least one checkpoint before it may stop, so a chain of steps always moves forward.
         shouldStop: () => moved && this.now().getTime() - started >= this.collectBudgetMs,
         checkpoint: async (x) => {
-          await this.store.write(`${prefix}cursor.json`, JSON.stringify(x)); moved = true;
+          // The cursor is saved at most every 15 s: on resume, pages after it are fetched and overwritten again.
+          moved = true;
+          if (this.now().getTime() - cursorSavedAt >= CURSOR_EVERY_MS) { await this.store.write(`${prefix}cursor.json`, JSON.stringify(x)); cursorSavedAt = this.now().getTime(); }
           for (const w of x.warnings.slice(warned)) log.event(`warning: ${w}`);
           warned = x.warnings.length;
           await log.flush(false);
@@ -832,7 +870,8 @@ export class Workbench {
       });
       await this.store.write(`${prefix}cursor.json`, JSON.stringify(cursor));
       if (cursor.phase !== 'done') {
-        running = { ...running, step: step + 1, heartbeatAt: this.now().toISOString(), progress: progress(cursor) };
+        const { limitRetries: _r, waitingUntil: _w, ...rest } = running;
+        running = { ...rest, step: step + 1, heartbeatAt: this.now().toISOString(), progress: progress(cursor) };
         await this.saveJob(running);
         log.event(`collection ${job.id} paused at ${cursor.phase} ${cursor.index} after ${cursor.pages} pages; next step queued`);
         try {
@@ -862,7 +901,21 @@ export class Workbench {
       log.event(`collection ${job.id} done: blueprint ${bp.id} from ${records.length} records, ${cursor.warnings.length} warnings`);
       return done;
     } catch (e) {
-      return await fail(`${(e as Error).message ?? String(e)} (the collection can be resumed from its last checkpoint)`);
+      if (isPlatformLimit(e) && (running.limitRetries ?? 0) < LIMIT_RETRIES) {
+        // Wait the limit out: queue the same step again later; it continues from the last saved cursor.
+        const retries = (running.limitRetries ?? 0) + 1;
+        const until = new Date(this.now().getTime() + LIMIT_DELAY_S * 1000).toISOString();
+        log.event(`Forge limit reached for this installation (${(e as Error).message}); waiting ${LIMIT_DELAY_S / 60} min, retry ${retries} of ${LIMIT_RETRIES}`, 'error');
+        try {
+          await this.platform.enqueue({ jobId: job.id, blueprintId: COLLECT, step }, `bp-${COLLECT}`, LIMIT_DELAY_S);
+          running = { ...running, limitRetries: retries, waitingUntil: until, heartbeatAt: until };
+          await this.saveJob(running).catch(() => undefined);
+          return running;
+        } catch { /* could not even queue: fall through and fail, so it can be resumed by hand */ }
+      }
+      return await fail(isPlatformLimit(e)
+        ? `Forge limits for this installation were exceeded (${(e as Error).message}); wait a few minutes, then resume from the last checkpoint`
+        : `${(e as Error).message ?? String(e)} (the collection can be resumed from its last checkpoint)`);
     } finally {
       await log.flush();
     }

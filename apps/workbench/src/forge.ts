@@ -97,8 +97,8 @@ export function platformFor(site: Omit<Caller, 'accountId'>, userActor?: Actor):
       const j = (await res.json()) as { permissions?: { ADMINISTER?: { havePermission?: boolean } } };
       return j.permissions?.ADMINISTER?.havePermission === true;
     },
-    async enqueue(msg: JobMessage, concurrencyKey: string) {
-      await jobs.push({ body: msg, concurrency: { key: concurrencyKey, limit: 1 } });
+    async enqueue(msg: JobMessage, concurrencyKey: string, delaySeconds?: number) {
+      await jobs.push({ body: msg, concurrency: { key: concurrencyKey, limit: 1 }, ...(delaySeconds ? { delayInSeconds: Math.min(900, delaySeconds) } : {}) });
     },
   };
 }

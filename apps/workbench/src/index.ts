@@ -1,7 +1,7 @@
 import Resolver from '@forge/resolver';
 import type { AsyncEvent } from '@forge/events';
 import { platformFor, siteOf } from './forge';
-import { Workbench, type Caller, type JobMessage } from './workbench';
+import { Workbench, type Caller, type JobMessage, isPlatformLimit } from './workbench';
 
 type Ctx = { accountId?: string; installContext?: string };
 
@@ -53,7 +53,7 @@ for (const [name, fn] of Object.entries(FUNCTIONS)) {
     } catch (e) {
       const message = (e as Error).message ?? String(e);
       console.error(`workbench ${name} failed: ${message}`);
-      return { ok: false, error: message };
+      return { ok: false, error: isPlatformLimit(e) ? `Forge limits for this app on this site were exceeded for a moment (${message}). Wait a few minutes and try again; a running collection waits and retries by itself.` : message };
     }
   });
 }
