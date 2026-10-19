@@ -31,6 +31,23 @@ Identity is the Forge `accountId` and the site comes from the install context, s
   are checked when the job is queued and again when it runs; the engine repeats the dry-run and refuses if it changed.
 - Phrases are typed (pasting is disabled in the dialog); the server decides, not the UI.
 
+## ServiceNow components and JSM build & gaps
+
+Two pages, for any blueprint (uploaded or collected), computed from the blueprint alone (no site reads):
+
+- **ServiceNow components**: everything the analysis found, by category (CMDB classes and schema, groups and roles,
+  flows and workflows, business rules, client scripts and UI policies, UI scripts, script includes and jobs, SLAs and
+  schedules, assignment and approval rules, custom fields, catalog items, catalog variables, notifications, ACLs,
+  portal and knowledge, reports, integrations, documents). Each item shows what it does, its table, usage, whether
+  the customer built it and its script risk. Items load per category with search and paging; scripts are never sent.
+- **JSM build & gaps**: every JSM element the blueprint designs (spaces and portal groups, request types, forms,
+  custom fields, workflows and work types, queues, SLAs and calendars, automations, notifications, teams, Assets
+  schemas, object types and attributes), each with its work (standard / configure / build custom), how the
+  workbench builds it (automated / automated + guided steps / guided), the outcomes it delivers and the ServiceNow
+  components it replaces. Below: the fit gaps per capability with their resolution, in-scope outcomes no element
+  delivers, and fit to the Atlassian standard per capability. What already exists on the site is the Build tab's
+  dry-run.
+
 ## Connect to ServiceNow (instead of uploading)
 
 Jira admins can collect from a ServiceNow instance and analyse it in the app (tab **Connect to ServiceNow**). It is

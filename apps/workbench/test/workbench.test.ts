@@ -322,3 +322,16 @@ describe('ServiceNow collection, interrupted', () => {
     expect((await t.wb.connection(t.as(t.admin))).jobs[0]!.result).toMatchObject({ blueprintId: v.nextBlueprintId });
   });
 });
+
+describe('blueprint views', () => {
+  it('serves the ServiceNow and JSM views to signers, not to outsiders', async () => {
+    const t = setup();
+    await t.wb.saveSettings(t.as(t.admin), { signers: ['acc-signer'] });
+    await t.upload(t.admin, base);
+    const id = base.id;
+    expect((await t.wb.inventory(t.as(t.signer), { blueprintId: id })).totals.components).toBe(base.evidence.length);
+    expect((await t.wb.jsmGaps(t.as(t.signer), { blueprintId: id })).totals.elements).toBe(base.design.length);
+    await expect(t.wb.inventory(t.as(t.outsider), { blueprintId: id })).rejects.toThrow(/do not have access/);
+    await expect(t.wb.jsmGaps(t.as(t.admin), { blueprintId: 'nope' })).rejects.toThrow(/no blueprint/);
+  });
+});

@@ -166,3 +166,14 @@ describe('reference confidence', () => {
     expect(referenceConfidence(bp)).toMatchObject({ deprecated: 1, artifacts: [{ status: 'deprecated', elements: ['Old location'] }] });
   });
 });
+
+describe('UI scripts', () => {
+  it('records global UI scripts as scripted evidence (no JSM equivalent, so each is a behaviour to re-home)', () => {
+    const base = hardwareSnapshot();
+    const records = [...base.records, rec('sys_ui_script', 900, { name: 'x_acme.formHelpers', global: 'true', active: 'true', ui_type: '10', script: "function hideIt() { g_form.setDisplay('u_cost', false); }" })];
+    const ev = analyse({ ...base, records, stats: tableStats(records) }, { customer: 'Synthetic Co', now: '2026-01-01T00:00:00Z' }).blueprint.evidence.filter((e) => e.kind === 'ui-script');
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ name: 'x_acme.formHelpers', attributes: { global: true } });
+    expect(ev[0]!.provenance[0]).toMatchObject({ table: 'sys_ui_script' });
+  });
+});

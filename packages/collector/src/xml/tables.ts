@@ -16,7 +16,7 @@ export const RECORD_TABLES = new Set<string>([
   // Legacy workflow
   'wf_workflow', 'wf_workflow_version', 'wf_activity', 'wf_activity_definition', 'wf_transition', 'wf_condition',
   // Scripts, policies & UI
-  'sys_script', 'sys_script_client', 'sys_script_include', 'sys_ui_policy', 'sys_ui_policy_action', 'sys_ui_action',
+  'sys_script', 'sys_script_client', 'sys_script_include', 'sys_ui_script', 'sys_ui_policy', 'sys_ui_policy_action', 'sys_ui_action',
   'sys_security_acl', 'sys_security_acl_role', 'sysevent_register', 'sysevent_script_action',
   // Routing, approvals, SLA, notifications
   'sysrule_assignment', 'sysrule_approvals', 'sysapproval_group', 'contract_sla', 'cmn_schedule', 'cmn_schedule_span',

@@ -27,7 +27,7 @@ export const STANDARD_PULLS: TablePull[] = [
   { table: 'wf_workflow', purpose: 'legacy workflow' },
   { table: 'wf_workflow_version', query: 'published=true', purpose: 'legacy workflow' },
   { table: 'wf_activity', query: 'workflow_version.published=true', purpose: 'legacy workflow' },
-  ...['sys_script', 'sys_script_client', 'sys_script_include', 'sys_ui_policy', 'sys_ui_policy_action', 'sys_ui_action', 'sysevent_register', 'sysevent_script_action', 'sysauto_script'].map((table) => ({ table, purpose: 'scripts & policies' })),
+  ...['sys_script', 'sys_script_client', 'sys_script_include', 'sys_ui_script', 'sys_ui_policy', 'sys_ui_policy_action', 'sys_ui_action', 'sysevent_register', 'sysevent_script_action', 'sysauto_script'].map((table) => ({ table, purpose: 'scripts & policies' })),
   // Routing, approvals, service levels, communication
   ...['sysrule_assignment', 'sysrule_approvals', 'contract_sla', 'cmn_schedule', 'cmn_schedule_span', 'sysevent_email_action', 'sysevent_in_email_action', 'sys_email_account', 'dl_definition'].map((table) => ({ table, purpose: 'routing, approvals, SLAs, notifications' })),
   // Security & people model (no user records)

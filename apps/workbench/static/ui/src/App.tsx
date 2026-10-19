@@ -4,13 +4,16 @@ import { call, uploadBlueprint, type Boot } from './api';
 import { BlueprintView } from './BlueprintView';
 import { SettingsView } from './SettingsView';
 import { ServiceNowView } from './ServiceNowView';
+import { BlueprintPicker, JsmBuildGaps, ServiceNowComponents } from './ComponentsView';
+
+type Page = 'blueprints' | 'sn-components' | 'jsm-gaps' | 'servicenow';
 
 export function App() {
   const [boot, setBoot] = useState<Boot>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<string>();
   const [adminPage, setAdminPage] = useState(false);
-  const [page, setPage] = useState<'blueprints' | 'servicenow'>('blueprints');
+  const [page, setPage] = useState<Page>('blueprints');
 
   const reload = useCallback(async () => {
     try {
@@ -44,15 +47,19 @@ export function App() {
       {adminPage
         ? (boot.role === 'admin' ? <SettingsView boot={boot} onSaved={setBoot} /> : <div className="notice">Only Jira administrators can change the workbench settings.</div>)
         : (<>
-          {boot.role === 'admin' && (
-            <nav className="tabs">
-              <button className={page === 'blueprints' ? 'active' : ''} onClick={() => setPage('blueprints')}>Blueprints</button>
-              <button className={page === 'servicenow' ? 'active' : ''} onClick={() => setPage('servicenow')}>Connect to ServiceNow</button>
-            </nav>
+          <nav className="tabs">
+            {PAGES.filter(([, , adminOnly]) => !adminOnly || boot.role === 'admin').map(([p, label]) => (
+              <button key={p} className={page === p ? 'active' : ''} onClick={() => setPage(p)}>{label}</button>
+            ))}
+          </nav>
+          {(page === 'sn-components' || page === 'jsm-gaps') && (
+            <div>
+              <BlueprintPicker blueprints={boot.blueprints} selected={selected} onSelect={setSelected} />
+              {page === 'sn-components' ? <ServiceNowComponents blueprintId={selected} /> : <JsmBuildGaps blueprintId={selected} />}
+            </div>
           )}
-          {page === 'servicenow' && boot.role === 'admin'
-            ? <ServiceNowView onBlueprint={async (id) => { await reload(); setSelected(id); setPage('blueprints'); }} />
-            : (
+          {page === 'servicenow' && boot.role === 'admin' && <ServiceNowView onBlueprint={async (id) => { await reload(); setSelected(id); setPage('blueprints'); }} />}
+          {page === 'blueprints' && (
           <div className="layout">
             <aside>
               <h3>Blueprints</h3>
@@ -77,6 +84,13 @@ export function App() {
     </div>
   );
 }
+
+const PAGES: [Page, string, boolean][] = [
+  ['blueprints', 'Blueprints', false],
+  ['sn-components', 'ServiceNow components', false],
+  ['jsm-gaps', 'JSM build & gaps', false],
+  ['servicenow', 'Connect to ServiceNow', true],
+];
 
 function Upload({ partChars, onDone }: { partChars: number; onDone: (id: string) => Promise<void> }) {
   const [progress, setProgress] = useState<[number, number]>();

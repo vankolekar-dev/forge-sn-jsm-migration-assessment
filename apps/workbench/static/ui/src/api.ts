@@ -36,3 +36,28 @@ export interface Connection {
   lastTest?: { ok: boolean; at: string; release?: string; checks: { name: string; ok: boolean; detail: string }[] };
 }
 export interface ConnectionView { connection: Connection | null; hasClientSecret: boolean; hasPassword: boolean; nextBlueprintId: string | null; jobs: Job[] }
+
+// Blueprint views (mirror src/views.ts on the backend).
+export interface SnItem { id: string; kind: string; name: string; domain?: string; table?: string; intent?: string; custom?: boolean; active?: boolean; usage?: { count: number; periodDays?: number }; fillRate?: number; risk?: string }
+export interface SnInventory {
+  blueprintId: string; customer: string;
+  sources: { kind: string; name: string; instance?: string; release?: string; addedAt: string }[];
+  totals: { components: number; custom: number; inactive: number; scripted: number };
+  categories: { id: string; label: string; count: number; custom: number; inactive: number; byKind: Record<string, number> }[];
+}
+export interface SnItemsPage { category: string; total: number; offset: number; items: SnItem[] }
+export type Origin = 'reference' | 'reference-configured' | 'extension';
+export type BuildMethod = 'automated' | 'automated + guided' | 'guided';
+export interface JsmItem {
+  id: string; type: string; name: string; origin: Origin; work: string; method: BuildMethod; guidedAspects: string[]; justification?: string; notes?: string;
+  outcomes: { id: string; statement: string; status: string }[]; dependsOn: { id: string; name: string }[];
+  replaces: { count: number; sample: { id: string; kind: string; name: string }[] };
+}
+export interface JsmGaps {
+  blueprintId: string; customer: string;
+  totals: { elements: number; standard: number; configure: number; custom: number; automated: number; partlyGuided: number; guided: number; gaps: number; outcomesWithoutElement: number };
+  categories: { id: string; label: string; count: number; byOrigin: Record<Origin, number>; byMethod: Record<BuildMethod, number>; items: JsmItem[] }[];
+  capabilities: { id: string; name: string; status: string; score?: number; counts?: { reference: number; configured: number; extension: number } }[];
+  gaps: { capability: string; description: string; resolution: string; outcome?: string; evidence: string[] }[];
+  outcomesWithoutElement: { id: string; statement: string; status: string }[];
+}

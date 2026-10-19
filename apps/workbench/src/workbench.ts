@@ -8,6 +8,7 @@ import {
 } from '@snjsm/collector';
 import { analyse, blueprintIdFor } from '@snjsm/analyser';
 import { CHUNK_CHARS, KvStore, type Kv } from './kv-store';
+import { jsmGaps, snInventory, snItems } from './views';
 
 /**
  * The workbench backend, independent of the Forge runtime (index.ts wires it to Forge). Every gate of the build
@@ -106,6 +107,7 @@ const accountId = z.string().min(1).max(128).regex(/^[\w:-]+$/);
 const scope = { capabilityIds: z.array(z.string().max(200)).max(200).optional(), elementIds: z.array(z.string().max(200)).max(500).optional() };
 const P = {
   blueprint: z.object({ blueprintId: id }),
+  inventoryItems: z.object({ blueprintId: id, category: z.string().max(40), query: z.string().max(200).optional(), customOnly: z.boolean().optional(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(500).optional() }),
   uploadStart: z.object({ fileName: z.string().max(300), chars: z.number().int().positive().max(MAX_UPLOAD_CHARS), parts: z.number().int().positive().max(Math.ceil(MAX_UPLOAD_CHARS / CHUNK_CHARS)) }),
   uploadPart: z.object({ uploadId: id, index: z.number().int().min(0), text: z.string().max(CHUNK_CHARS) }),
   uploadFinish: z.object({ uploadId: id, replace: z.boolean().optional() }),
@@ -342,6 +344,33 @@ export class Workbench {
     const svc = this.service(caller, settings);
     const [summary, status] = await Promise.all([svc.summary({ blueprint: bpKey(p.blueprintId) }), svc.status({ blueprint: bpKey(p.blueprintId) })]);
     return { summary, status, jobs: await this.jobs(p.blueprintId) };
+  }
+
+  private async readBlueprint(blueprintId: string): Promise<Blueprint> {
+    const key = bpKey(blueprintId);
+    const text = await this.store.read(key);
+    if (text === undefined) throw new Error(`no blueprint ${blueprintId} in the workbench`);
+    return parseBlueprint(text, key);
+  }
+
+  /** What the analysis found in ServiceNow, by component category. */
+  async inventory(caller: Caller, payload: unknown) {
+    const p = parse(P.blueprint, payload);
+    await this.need(caller, 'signer');
+    return snInventory(await this.readBlueprint(p.blueprintId));
+  }
+
+  async inventoryItems(caller: Caller, payload: unknown) {
+    const p = parse(P.inventoryItems, payload);
+    await this.need(caller, 'signer');
+    return snItems(await this.readBlueprint(p.blueprintId), p);
+  }
+
+  /** What JSM needs: every design element by category, how it gets built, and the fit gaps. Blueprint only. */
+  async jsmGaps(caller: Caller, payload: unknown) {
+    const p = parse(P.blueprint, payload);
+    await this.need(caller, 'signer');
+    return jsmGaps(await this.readBlueprint(p.blueprintId));
   }
 
   async setSpace(caller: Caller, payload: unknown) {

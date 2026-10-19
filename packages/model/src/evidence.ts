@@ -9,7 +9,7 @@ export const EvidenceKind = z.enum([
   // Service catalog & intake
   'catalog-item', 'record-producer', 'catalog-variable', 'variable-set', 'catalog-category', 'order-guide',
   // Process logic
-  'flow', 'flow-step', 'subflow', 'legacy-workflow', 'business-rule', 'client-script', 'ui-policy', 'ui-action',
+  'flow', 'flow-step', 'subflow', 'legacy-workflow', 'business-rule', 'client-script', 'ui-script', 'ui-policy', 'ui-action',
   'script-include', 'scheduled-job', 'event', 'transform-map',
   // Routing, approvals, service levels, communication
   'assignment-rule', 'approval-rule', 'sla-definition', 'schedule', 'notification', 'inbound-email-action',

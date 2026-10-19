@@ -103,7 +103,7 @@ export function assessProcess({ evidence }: AreaInput): AreaAssessment {
 
 // ── Customisation (scripts) ──────────────────────────────────────────────
 
-const SCRIPTED = new Set(['business-rule', 'client-script', 'script-include', 'ui-action', 'ui-policy', 'scheduled-job', 'acl', 'portal-widget', 'inbound-email-action', 'record-producer', 'transform-map']);
+const SCRIPTED = new Set(['business-rule', 'client-script', 'ui-script', 'script-include', 'ui-action', 'ui-policy', 'scheduled-job', 'acl', 'portal-widget', 'inbound-email-action', 'record-producer', 'transform-map']);
 
 /** What each script pattern becomes in Atlassian (redesign). */
 export const PATTERN_APPROACH: Record<string, string> = {

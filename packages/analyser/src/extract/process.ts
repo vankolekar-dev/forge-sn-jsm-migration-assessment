@@ -159,6 +159,14 @@ export const processExtractors: Extractor[] = [
     },
   },
   {
+    // Global UI scripts run in every form or portal page: JSM has no equivalent, so each is a behaviour to re-home.
+    name: 'ui-script', tables: ['sys_ui_script'],
+    record: (r, c) => {
+      const sc = scripted(r, c, 'script', 'client');
+      return { kind: 'ui-script', intent: sc.intent, attributes: { global: isTrue(r.fields['global']) || undefined, uiType: r.fields['ui_type'] || undefined, active: r.fields['active'] || undefined, risk: sc.risk, script: sc.a }, relations: sc.relations };
+    },
+  },
+  {
     name: 'scheduled-job', tables: ['sysauto_script', 'sysauto'],
     record: (r, c) => {
       const sc = scripted(r, c, 'script', 'server');
