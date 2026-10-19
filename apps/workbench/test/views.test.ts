@@ -74,3 +74,23 @@ describe('JSM build & gaps view', () => {
     expect(g.outcomesWithoutElement.map((o) => o.id)).not.toContain('o.rejected');
   });
 });
+
+describe('live collection keeps the analysis', () => {
+  it('finds the same customer fields and tables from a narrowed dictionary pull as from the full XML', async () => {
+    const { FakeServiceNow, ClientCredentialsProvider, ServiceNowClient, collectLive } = await import('@snjsm/collector');
+    const base = snapshotFromXml([{ name: 'enterprise.xml', xml }]);
+    // Realistic dictionary rows (name is the table): two customer fields and a base field the analysis does not use.
+    const row = (n: number, table: string, element: string, label: string) => ({ table: 'sys_dictionary', sysId: n.toString(16).padStart(32, 'a'), fields: { name: table, element, column_label: label, internal_type: 'string', active: 'true', mandatory: 'false' }, display: {} });
+    const snap = { ...base, records: [...base.records, row(1, 'incident', 'u_cost_center', 'Cost center'), row(2, 'cmdb_ci_server', 'u_rack', 'Rack'), row(3, 'cmdb_ci_server', 'cpu_count', 'CPU count')] };
+    const sn = new FakeServiceNow(snap.records);
+    const client = new ServiceNowClient({ instanceUrl: sn.instanceUrl, auth: new ClientCredentialsProvider(sn.instanceUrl, 'client-1', 'secret-1', sn.fetch), fetch: sn.fetch, maxRequestsPerSecond: 1000, sleep: async () => {} });
+    const collected = await collectLive(client, { usageDays: 30 });
+    expect(collected.records.some((r) => r.table === 'sys_dictionary' && r.fields['element'] === 'cpu_count')).toBe(false);
+    const live = analyse(collected, { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
+    const full = analyse(snap, { customer: 'Fixture Co', now: '2026-01-01T00:00:00Z' }).blueprint;
+    const names = (b: typeof bp, kind: string) => b.evidence.filter((e) => e.kind === kind).map((e) => e.name).sort();
+    expect(names(full, 'dictionary-field')).toEqual(['cmdb_ci_server.u_rack', 'incident.u_cost_center']);
+    expect(names(live, 'dictionary-field')).toEqual(names(full, 'dictionary-field'));
+    expect(names(live, 'table')).toEqual(names(full, 'table'));
+  });
+});

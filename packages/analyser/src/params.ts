@@ -42,7 +42,7 @@ const key = (v: ParamValue) => JSON.stringify(v);
 
 // ── Raw text access (scripts and conditions live on records, not on evidence) ──
 
-const TEXT_FIELDS = ['script', 'condition', 'filter_condition', 'advanced_condition', 'vars', 'values', 'approval_condition', 'condition_script', 'inputs', 'start_condition'];
+export const TEXT_FIELDS = ['script', 'condition', 'filter_condition', 'advanced_condition', 'vars', 'values', 'approval_condition', 'condition_script', 'inputs', 'start_condition'];
 
 function recordOf(store: RecordStore, e: Evidence): SnRecord | undefined {
   const p = e.provenance.find((x) => x.sysId);

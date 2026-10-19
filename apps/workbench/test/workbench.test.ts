@@ -404,7 +404,8 @@ describe('ServiceNow collection and Forge limits', () => {
     const t = setup({ collectBudgetMs: 5000, fakeClock: true });
     await t.wb.saveConnection(t.as(t.admin), { profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, usageDays: 30 });
     const job = await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
-    await t.drain(); await t.drain();
+    // Counts come first; drain until record pages are stored.
+    for (let i = 0; i < 20 && !(await t.wb.store.list(`collections/${job.id}/p/`)).length; i++) await t.drain();
     const pages = await t.wb.store.list(`collections/${job.id}/p/`);
     expect(pages.length).toBeGreaterThan(0);
     expect(pages.every((k) => /\/p\/[a-z0-9_]+\/\d{6}\.gz$/.test(k))).toBe(true);
@@ -425,6 +426,36 @@ describe('ServiceNow collection and Forge limits', () => {
     expect(last).toMatchObject({ id: job.id, status: 'done' });
     const { entries } = await t.wb.snLogs(t.as(t.admin), { profile: 'basic' });
     expect(entries.some((e) => e.kind === 'event' && /Forge limit reached.*retry 1 of 6/.test(e.message))).toBe(true);
+  });
+
+  it('analyses script tables page by page and produces the same blueprint as analysing every record', async () => {
+    const { MemorySink, ClientCredentialsProvider, ServiceNowClient, collectSteps, snapshotOf, startCursor, STREAMED_TABLES } = await import('@snjsm/collector');
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), { profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, usageDays: 30 });
+    const job = await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    const stored = new Set<string>();
+    let last: Job | undefined;
+    while (t.queue.length) { last = await t.drain(); for (const k of await t.wb.store.list(`collections/${job.id}/`)) stored.add(k); }
+    expect(last).toMatchObject({ status: 'done' });
+    // Streamed tables were stored as evidence pages, never as raw records; names were indexed for lookups.
+    const tableOf = (k: string) => k.split('/')[3]!;
+    expect([...stored].filter((k) => k.includes('/e/')).length).toBeGreaterThan(0);
+    expect([...stored].filter((k) => k.includes('/p/')).some((k) => STREAMED_TABLES.includes(tableOf(k)))).toBe(false);
+    expect([...stored].some((k) => k.includes('/i/sys_script_include/'))).toBe(true);
+    expect(await t.wb.store.list(`collections/${job.id}/`)).toEqual([]);
+
+    // The same instance collected into memory and analysed in one go.
+    const sn = new FakeServiceNow(snap.records);
+    const client = new ServiceNowClient({ instanceUrl: 'https://dev12345.service-now.com', auth: new ClientCredentialsProvider('https://dev12345.service-now.com', 'client-1', 'secret-1', sn.fetch), fetch: sn.fetch, maxRequestsPerSecond: 1000, sleep: async () => {} });
+    const sink = new MemorySink();
+    const cursor = await collectSteps(client, startCursor(), sink, { usageDays: 30 });
+    const batch = analyse(snapshotOf('https://dev12345.service-now.com', cursor, sink.all(), sink.aggregates, 30, last!.startedAt), { customer: 'x' }).blueprint;
+    const bp = JSON.parse((await t.wb.store.read(`blueprints/${(last!.result as { blueprintId: string }).blueprintId}.json`))!) as Blueprint;
+    expect(bp.evidence.length).toBeGreaterThan(1000);
+    expect(bp.evidence).toEqual(batch.evidence);
+    expect(bp.outcomes).toEqual(batch.outcomes);
+    expect(bp.design).toEqual(batch.design);
+    expect(bp.capabilities).toEqual(batch.capabilities);
   });
 
   it('removes the stored pages of earlier collections when a new one starts', async () => {

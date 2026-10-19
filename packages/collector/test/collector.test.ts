@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   BasicAuthProvider,
+  compileQuery,
   loggingFetch,
   type RequestLogEntry,
   ClientCredentialsProvider, FakeServiceNow, HttpFetch, MemorySink, PasswordGrantProvider, STANDARD_PULLS, ServiceNowClient, StaticTokenProvider,
-  collectLive, collectSteps, explainOAuthError, normaliseInstanceUrl, normaliseRow, parseXml, snapshotFromXml, snapshotOf, standardAggregates, startCursor,
+  collectLive, collectSteps, INDEXED_TABLES, STREAMED_TABLES, explainOAuthError, normaliseInstanceUrl, normaliseRow, parseXml, snapshotFromXml, snapshotOf, standardAggregates, startCursor,
   type CollectCursor,
 } from '@snjsm/collector';
 
@@ -36,6 +37,18 @@ describe('xml parser (ported)', () => {
     expect(r.records.some((x) => x.table === 'sc_cat_item')).toBe(true);
   });
   it('rejects non-XML input', () => expect(() => parseXml('not xml')).toThrow());
+});
+
+describe('fake encoded queries', () => {
+  it('evaluates AND, OR, IN, STARTSWITH, emptiness and NULL like ServiceNow', () => {
+    const q = (s: string, r: Record<string, string>) => compileQuery(s)(r);
+    expect(q('elementSTARTSWITHu_^ORnameSTARTSWITHu_', { name: 'incident', element: 'u_cost' })).toBe(true);
+    expect(q('elementSTARTSWITHu_^ORnameSTARTSWITHu_', { name: 'incident', element: 'state' })).toBe(false);
+    expect(q('nameINa,b^elementISNOTEMPTY', { name: 'b', element: '' })).toBe(false);
+    expect(q('nameINa,b^elementISNOTEMPTY^ORDERBYname', { name: 'a', element: 'x' })).toBe(true);
+    expect(q('is_published=true^ORroles!=NULL', { is_published: 'false', roles: 'itil' })).toBe(true);
+    expect(q('active=true', { name: 'no active field' })).toBe(true); // lenient on fields a fixture row lacks
+  });
 });
 
 describe('instance url', () => {
@@ -203,6 +216,17 @@ describe('resumable live collection', () => {
     expect(sn2.requests.filter((r) => r.method !== 'GET').every((r) => r.path === '/oauth_token.do')).toBe(true);
   });
 
+  it('pulls only customer fields from sys_dictionary, with named columns, and the fill-rate classes in one small query', async () => {
+    const sn = new FakeServiceNow(records);
+    await collectLive(client(sn, 500), { ...opts, pulls: STANDARD_PULLS });
+    const dict = sn.requests.filter((r) => r.path === '/api/now/table/sys_dictionary');
+    expect(dict[0]!.query).toMatch(/^elementSTARTSWITHu_\^ORelementSTARTSWITHx_\^ORnameSTARTSWITHu_\^ORnameSTARTSWITHx_/);
+    expect(dict.some((r) => /nameSTARTSWITHcmdb|nameSTARTSWITHalm_/.test(r.query))).toBe(false);
+    const fill = dict.filter((r) => r.query.startsWith('nameIN'));
+    expect(fill.length).toBeLessThanOrEqual(1);
+    if (fill[0]) expect(fill[0].query.split('^')[0]!.split(',').length).toBeLessThanOrEqual(15);
+  });
+
   it('records a missing table as a warning and carries on', async () => {
     const sn = new FakeServiceNow(records);
     const snap = await collectLive(client(sn), { ...opts, pulls: [{ table: 'u_not_here', purpose: 'x' }, ...opts.pulls.slice(0, 2)] });
@@ -217,12 +241,32 @@ describe('resumable live collection', () => {
     const sink = new MemorySink();
     let saved = startCursor();
     await expect(collectSteps(c, saved, sink, { ...opts, checkpoint: async (x) => { saved = x; } })).rejects.toThrow(/fetch failed/);
-    expect(saved.phase).toBe('pulls');
+    expect(saved.phase).not.toBe('done');
     expect(saved.warnings.join(' ')).not.toMatch(/fetch failed/);
     down = false;
     const done = await collectSteps(c, saved, sink, opts);
     const whole = await collectLive(client(new FakeServiceNow(records)), opts);
     expect(snapshotOf(sn.instanceUrl, done, sink.all(), sink.aggregates, 30).records.length).toBe(whole.records.length);
+  });
+
+  it('counts before it pulls, and pulls context tables, then name indexes, then streamed tables', async () => {
+    const sn = new FakeServiceNow(records);
+    const sink = new MemorySink();
+    const phases: string[] = [];
+    await collectSteps(client(sn), startCursor(), sink, { ...opts, pulls: STANDARD_PULLS, checkpoint: async (x) => { if (phases.at(-1) !== x.phase) phases.push(x.phase); } });
+    expect(phases).toEqual(['aggregates', 'fill', 'pulls', 'done']);
+    const rank = (p: (typeof STANDARD_PULLS)[number]) => (p.stream ? 2 : p.index ? 1 : 0);
+    expect(STANDARD_PULLS.map(rank)).toEqual([...STANDARD_PULLS.map(rank)].sort());
+    expect(STANDARD_PULLS.filter((p) => p.stream).map((p) => p.table).sort()).toEqual([...STREAMED_TABLES].sort());
+    for (const t of INDEXED_TABLES) expect(STREAMED_TABLES).toContain(t);
+    // Index pages are names for streaming sinks; a memory sink keeps whole records only (no duplicates).
+    const all = sink.all();
+    expect(new Set(all.map((r) => `${r.table}:${r.sysId}`)).size).toBe(all.length);
+  });
+
+  it('refuses to resume a cursor from the previous plan order', async () => {
+    const old = { ...startCursor(), version: undefined, phase: 'pulls' as const, index: 3 };
+    await expect(collectSteps(client(new FakeServiceNow(records)), old, new MemorySink(), opts)).rejects.toThrow(/earlier version/);
   });
 
   it('explains a hibernating developer instance (HTML instead of JSON)', async () => {

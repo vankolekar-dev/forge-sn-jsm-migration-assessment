@@ -1,4 +1,4 @@
-import type { Snapshot } from '@snjsm/collector';
+import type { Snapshot, SnRecord } from '@snjsm/collector';
 import type { Evidence } from '@snjsm/model';
 import { RecordStore } from '../store';
 import { catalogExtractors } from './catalog';
@@ -17,15 +17,70 @@ export interface ExtractionResult {
   warnings: string[];
 }
 
-export function extractEvidence(snapshot: Snapshot, store = new RecordStore(snapshot)): ExtractionResult {
+/** Evidence already extracted from a table's records page by page (streamed collection), with its warnings. */
+export interface TableExtraction { evidence: Evidence[]; warnings: string[] }
+export type PreExtracted = Map<string, TableExtraction>;
+
+const extractorsByTable = (() => {
+  let m: Map<string, Extractor[]> | undefined;
+  return () => {
+    if (!m) { m = new Map(); for (const x of EXTRACTORS) for (const t of x.tables) m.set(t, [...(m.get(t) ?? []), x]); }
+    return m;
+  };
+})();
+
+function extractRecord(r: SnRecord, xs: Extractor[], ctx: ExtractContext, add: (e: Evidence) => void, warnings: string[]) {
+  for (const x of xs) {
+    try {
+      const drafts = x.record?.(r, ctx);
+      for (const d of drafts ? (Array.isArray(drafts) ? drafts : [drafts]) : []) add(toEvidence(r, d, ctx));
+    } catch (e) {
+      warnings.push(`${x.name} failed on ${r.table}:${r.sysId}: ${(e as Error).message}`);
+    }
+  }
+}
+
+/**
+ * Per-record evidence for one page, grouped by table (every table with an extractor gets an entry, even if empty).
+ * `ctx.store` must hold what these records refer to; the result is what extractEvidence() would produce for them.
+ */
+export function extractPage(records: SnRecord[], ctx: ExtractContext): PreExtracted {
+  const out: PreExtracted = new Map();
+  for (const r of records) {
+    const xs = extractorsByTable().get(r.table);
+    if (!xs) continue;
+    let t = out.get(r.table);
+    if (!t) out.set(r.table, (t = { evidence: [], warnings: [] }));
+    const seen = new Set(t.evidence.map((e) => e.id));
+    extractRecord(r, xs, ctx, (e) => { if (!seen.has(e.id)) { seen.add(e.id); t!.evidence.push(e); } }, t.warnings);
+  }
+  return out;
+}
+
+/** Concatenate page extractions (in page order). */
+export function mergeExtractions(pages: PreExtracted[]): PreExtracted {
+  const out: PreExtracted = new Map();
+  for (const p of pages) for (const [table, x] of p) {
+    let t = out.get(table);
+    if (!t) out.set(table, (t = { evidence: [], warnings: [] }));
+    for (const e of x.evidence) t.evidence.push(e);
+    for (const w of x.warnings) t.warnings.push(w);
+  }
+  return out;
+}
+
+/**
+ * Snapshot → evidence. Tables in `pre` were extracted page by page during collection: their evidence is taken as is
+ * (their records in the snapshot are stubs) and only the cross-evidence steps run over it.
+ */
+export function extractEvidence(snapshot: Snapshot, store = new RecordStore(snapshot), pre?: PreExtracted): ExtractionResult {
   const ctx: ExtractContext = {
     store,
     source: snapshot.source.kind,
     capturedAt: snapshot.source.capturedAt,
     instanceUrl: snapshot.source.instance ? `https://${snapshot.source.instance}` : undefined,
   };
-  const byTable = new Map<string, Extractor[]>();
-  for (const x of EXTRACTORS) for (const t of x.tables) byTable.set(t, [...(byTable.get(t) ?? []), x]);
+  const byTable = extractorsByTable();
 
   const evidence = new Map<string, Evidence>();
   const warnings: string[] = [];
@@ -37,16 +92,9 @@ export function extractEvidence(snapshot: Snapshot, store = new RecordStore(snap
   for (const table of store.tables()) {
     const xs = byTable.get(table);
     if (!xs) { if (!isConsumed(table)) unextracted[table] = store.table(table).length; continue; }
-    for (const r of store.table(table)) {
-      for (const x of xs) {
-        try {
-          const drafts = x.record?.(r, ctx);
-          for (const d of drafts ? (Array.isArray(drafts) ? drafts : [drafts]) : []) add(toEvidence(r, d, ctx));
-        } catch (e) {
-          warnings.push(`${x.name} failed on ${table}:${r.sysId}: ${(e as Error).message}`);
-        }
-      }
-    }
+    const done = pre?.get(table);
+    if (done) { for (const e of done.evidence) add(e); warnings.push(...done.warnings); continue; }
+    for (const r of store.table(table)) extractRecord(r, xs, ctx, add, warnings);
   }
   for (const x of EXTRACTORS) {
     if (!x.all) continue;

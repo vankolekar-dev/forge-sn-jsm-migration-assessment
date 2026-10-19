@@ -11,7 +11,17 @@ import { isRecordTable } from '../xml/tables';
  * - CMDB, assets, knowledge articles and transactional tables are NEVER pulled as records: only server-side
  *   counts (population, relationship class-pair matrix, process usage, fill rates). No CI data leaves the instance.
  */
-export interface TablePull { table: string; query?: string; fields?: string[]; purpose: string }
+export interface TablePull {
+  table: string; query?: string; fields?: string[]; purpose: string;
+  /** Records become evidence page by page and only a small stub is kept (no other analysis reads them in full). */
+  stream?: boolean;
+  /** Names only, pulled before the streamed tables so their pages can resolve references by name. */
+  index?: boolean;
+}
+
+/** Dictionary columns the analysis reads (not the scripts, qualifiers and attributes a full row carries). */
+export const DICTIONARY_FIELDS = ['name', 'element', 'column_label', 'internal_type', 'reference', 'mandatory', 'default_value', 'max_length', 'active', 'sys_scope'];
+
 export interface AggregateSpec { id: string; table: string; groupBy: string[]; query?: string; purpose: string }
 
 const RECENT = (days: number) => `sys_created_onRELATIVEGE@dayofweek@ago@${days}`;
@@ -19,7 +29,7 @@ const RECENT = (days: number) => `sys_created_onRELATIVEGE@dayofweek@ago@${days}
 /** Tables whose dictionary/choices matter for request, incident, change, problem and the CMDB. */
 export const PROCESS_TABLES = ['task', 'incident', 'problem', 'change_request', 'change_task', 'sc_request', 'sc_req_item', 'sc_task', 'sysapproval_approver', 'kb_knowledge', 'hr_case', 'sn_customerservice_case', 'facilities_request'];
 
-export const STANDARD_PULLS: TablePull[] = [
+const BASE_PULLS: TablePull[] = [
   // Catalog
   ...['sc_catalog', 'sc_category', 'sc_cat_item', 'sc_cat_item_producer', 'sc_cat_item_guide', 'sc_cat_item_content', 'sc_cat_item_category', 'item_option_new', 'item_option_new_set', 'io_set_item', 'question_choice', 'catalog_script_client', 'catalog_ui_policy', 'catalog_ui_policy_action', 'user_criteria', 'sc_cat_item_user_criteria_mtom', 'sc_cat_item_user_criteria_no_mtom'].map((table) => ({ table, purpose: 'service catalog' })),
   // Process logic
@@ -38,7 +48,9 @@ export const STANDARD_PULLS: TablePull[] = [
   { table: 'sys_group_has_role', purpose: 'group roles' },
   // Data model
   { table: 'sys_db_object', fields: ['name', 'label', 'super_class', 'sys_scope', 'is_extendable', 'sys_created_by', 'sys_package'], purpose: 'table hierarchy' },
-  { table: 'sys_dictionary', query: `nameIN${PROCESS_TABLES.join(',')}^ORnameSTARTSWITHcmdb^ORnameSTARTSWITHalm_^ORelementSTARTSWITHu_^ORelementSTARTSWITHx_`, purpose: 'fields on process and CMDB tables, plus all customer fields' },
+  // Only what the analysis uses: customer fields anywhere and the fields of customer tables. Base fields of the
+  // hundreds of out-of-the-box CMDB classes are not pulled; fill rates fetch the few classes they need on their own.
+  { table: 'sys_dictionary', query: 'elementSTARTSWITHu_^ORelementSTARTSWITHx_^ORnameSTARTSWITHu_^ORnameSTARTSWITHx_', fields: DICTIONARY_FIELDS, purpose: 'customer fields and customer tables' },
   { table: 'sys_choice', query: `nameIN${PROCESS_TABLES.join(',')}^inactive=false`, purpose: 'choice lists on process tables' },
   // CMDB metadata (not CIs)
   { table: 'cmdb_rel_type', purpose: 'CMDB relationship types' },
@@ -51,6 +63,26 @@ export const STANDARD_PULLS: TablePull[] = [
   ...['sys_rest_message', 'sys_rest_message_fn', 'sys_soap_message', 'sys_soap_message_function', 'sys_ws_definition', 'sys_ws_operation', 'sys_transform_map', 'sys_data_source', 'ecc_agent', 'oauth_entity', 'sys_alias', 'sys_app', 'sys_store_app'].map((table) => ({ table, purpose: 'integrations & apps' })),
   { table: 'sys_scope', fields: ['name', 'scope', 'version', 'vendor', 'active', 'sys_created_by'], purpose: 'application scopes' },
   { table: 'sys_plugins', query: 'active=active', fields: ['id', 'name', 'version', 'active'], purpose: 'active plugins' },
+];
+
+/**
+ * Script-heavy tables whose records no other analysis reads: the workbench turns each page into evidence as it
+ * arrives instead of keeping the raw records. The analyser checks this list against what it actually reads.
+ */
+export const STREAMED_TABLES = ['sys_script', 'sys_script_client', 'sys_script_include', 'sys_ui_script', 'sys_ui_action', 'sys_ui_policy', 'catalog_script_client', 'catalog_ui_policy', 'sysauto_script', 'sysevent_script_action', 'sys_security_acl', 'sys_report', 'sysevent_email_action'];
+/** Streamed tables that other records reference by name (scripts calling script includes). */
+export const INDEXED_TABLES = ['sys_script_include'];
+/** Fields of a name index row (what name lookups read). */
+export const INDEX_FIELDS = ['name', 'short_description', 'title', 'label', 'column_label', 'element', 'id', 'api_name', 'number', 'event_name'];
+
+/**
+ * The pull plan, in dependency order: every table that is read as context first, then name indexes, then the
+ * streamed tables (so each streamed page can be analysed with everything it refers to already collected).
+ */
+export const STANDARD_PULLS: TablePull[] = [
+  ...BASE_PULLS.filter((p) => !STREAMED_TABLES.includes(p.table)),
+  ...INDEXED_TABLES.map((table) => ({ table, fields: INDEX_FIELDS, index: true, purpose: 'names for reference lookups' })),
+  ...BASE_PULLS.filter((p) => STREAMED_TABLES.includes(p.table)).map((p) => ({ ...p, stream: true })),
 ];
 
 export function standardAggregates(usageDays: number): AggregateSpec[] {
@@ -108,7 +140,9 @@ export interface CollectOptions {
  * limit). Plain JSON: persist it after every checkpoint.
  */
 export interface CollectCursor {
-  phase: 'info' | 'pulls' | 'aggregates' | 'fill' | 'done';
+  /** 2: aggregates and fill rates before pulls. Earlier cursors cannot be resumed. */
+  version?: number;
+  phase: 'info' | 'aggregates' | 'fill' | 'pulls' | 'done';
   /** Index into the pulls, aggregates or fill plan for the current phase. */
   index: number;
   /** Pulls: last sys_id read from the current table, and how many records so far. */
@@ -126,10 +160,10 @@ export interface CollectCursor {
 
 /** Where collected data goes. Pages are numbered, so writing the same page again (after a crash) is harmless. */
 export interface CollectSink {
-  page(n: number, records: SnRecord[]): Promise<void>;
+  /** A page of a pull (index pages carry names only; streamed pages may be reduced to evidence by the sink). */
+  page(n: number, records: SnRecord[], pull: TablePull): Promise<void>;
   aggregate(a: Aggregate): Promise<void>;
-  /** Fill-rate planning reads the dictionary pulled earlier and the CI population aggregate. */
-  records(table: string): Promise<SnRecord[]>;
+  /** Fill-rate planning reads the CI population aggregate. */
   aggregateById(id: string): Promise<Aggregate | undefined>;
 }
 
@@ -142,7 +176,8 @@ export function isTableProblem(e: unknown): boolean {
   return e instanceof ServiceNowError && (e.status === 400 || e.status === 403 || e.status === 404);
 }
 
-export const startCursor = (): CollectCursor => ({ phase: 'info', index: 0, fetched: 0, attr: 0, fillRows: [], pages: 0, warnings: [] });
+export const CURSOR_VERSION = 2;
+export const startCursor = (): CollectCursor => ({ version: CURSOR_VERSION, phase: 'info', index: 0, fetched: 0, attr: 0, fillRows: [], pages: 0, warnings: [] });
 
 export interface StepOptions extends CollectOptions {
   /** Checked between requests: return true to stop at the next checkpoint (the cursor says where to resume). */
@@ -163,40 +198,13 @@ export async function collectSteps(client: ServiceNowClient, from: CollectCursor
   const aggs = opts.aggregates ?? standardAggregates(opts.usageDays ?? 365);
   const stop = opts.shouldStop ?? (() => false);
   const save = async () => { await opts.checkpoint?.(structuredClone(c)); };
+  if ((c.version ?? 1) !== CURSOR_VERSION) throw new Error('this collection was started by an earlier version of the collector and cannot be resumed; start a new collection');
 
   if (c.phase === 'info') {
     c.release = (await client.instanceInfo().catch(() => ({} as { build?: string }))).build;
-    c.phase = 'pulls'; c.index = 0;
+    c.phase = 'aggregates'; c.index = 0;
     await save();
   }
-
-  while (c.phase === 'pulls' && c.index < pulls.length) {
-    if (stop()) return c;
-    const p = pulls[c.index]!;
-    let finished = true;
-    try {
-      for await (const page of client.iterateTable(p.table, { query: p.query, fields: p.fields, displayValue: true, limit: max - c.fetched, ...(c.startAfter ? { startAfter: c.startAfter } : {}) })) {
-        // Rows carry sys_class_name; keep it when the collector models that class, otherwise use the pulled table.
-        await sink.page(c.pages, page.records.map((r) => (isRecordTable(r.table) ? r : { ...r, table: p.table })));
-        c.pages++;
-        c.fetched += page.records.length;
-        c.startAfter = page.lastSysId;
-        await save();
-        if (stop() && c.fetched < max) { finished = false; break; }
-      }
-      if (!finished) return c;
-      if (c.fetched >= max) c.warnings.push(`${p.table}: stopped at ${max} records (raise maxRecordsPerTable to read more).`);
-      log(`${p.table}: ${c.fetched}`);
-    } catch (e) {
-      if (!isTableProblem(e)) throw e;
-      const msg = e instanceof ServiceNowError && e.status === 400 ? `${p.table}: not available on this instance` : `${p.table}: ${(e as Error).message}`;
-      c.warnings.push(msg);
-      log(msg);
-    }
-    c.index++; c.fetched = 0; delete c.startAfter;
-    await save();
-  }
-  if (c.phase === 'pulls') { c.phase = 'aggregates'; c.index = 0; await save(); }
 
   while (c.phase === 'aggregates' && c.index < aggs.length) {
     if (stop()) return c;
@@ -219,10 +227,14 @@ export async function collectSteps(client: ServiceNowClient, from: CollectCursor
     const pop = (await sink.aggregateById('cmdb.ci-by-class'))?.rows ?? [];
     c.fill = [];
     if (fr.maxClasses > 0 && pop.length) {
-      const dict = await sink.records('sys_dictionary');
-      for (const cl of [...pop].sort((a, b) => b.count - a.count).slice(0, fr.maxClasses)) {
-        const cls = cl.group['sys_class_name'];
-        if (!cls || cl.count === 0) continue;
+      const top = [...pop].sort((a, b) => b.count - a.count).slice(0, fr.maxClasses).filter((cl) => cl.group['sys_class_name'] && cl.count > 0);
+      // One small query for the own fields of just these classes.
+      const dict: SnRecord[] = [];
+      if (top.length) {
+        for await (const p of client.iterateTable('sys_dictionary', { query: `nameIN${top.map((cl) => cl.group['sys_class_name']).join(',')}^elementISNOTEMPTY^internal_type!=collection`, fields: ['name', 'element', 'internal_type'] })) dict.push(...p.records);
+      }
+      for (const cl of top) {
+        const cls = cl.group['sys_class_name']!;
         const own = dict.filter((d) => d.fields['name'] === cls && d.fields['element'] && d.fields['internal_type'] !== 'collection').map((d) => d.fields['element']!);
         c.fill.push({ cls, total: cl.count, attrs: [...new Set([...KEY_CI_ATTRIBUTES, ...own])].slice(0, fr.maxAttributesPerClass) });
       }
@@ -245,7 +257,35 @@ export async function collectSteps(client: ServiceNowClient, from: CollectCursor
     c.index++; c.attr = 0; c.fillRows = [];
     await save();
   }
-  if (c.phase === 'fill') { c.phase = 'done'; await save(); }
+  if (c.phase === 'fill') { c.phase = 'pulls'; c.index = 0; c.fetched = 0; delete c.startAfter; await save(); }
+
+  while (c.phase === 'pulls' && c.index < pulls.length) {
+    if (stop()) return c;
+    const p = pulls[c.index]!;
+    let finished = true;
+    try {
+      for await (const page of client.iterateTable(p.table, { query: p.query, fields: p.fields, displayValue: true, limit: max - c.fetched, ...(c.startAfter ? { startAfter: c.startAfter } : {}) })) {
+        // Rows carry sys_class_name; keep it when the collector models that class, otherwise use the pulled table.
+        await sink.page(c.pages, page.records.map((r) => (isRecordTable(r.table) ? r : { ...r, table: p.table })), p);
+        c.pages++;
+        c.fetched += page.records.length;
+        c.startAfter = page.lastSysId;
+        await save();
+        if (stop() && c.fetched < max) { finished = false; break; }
+      }
+      if (!finished) return c;
+      if (c.fetched >= max && !p.index) c.warnings.push(`${p.table}: stopped at ${max} records (raise maxRecordsPerTable to read more).`);
+      log(`${p.table}: ${c.fetched}`);
+    } catch (e) {
+      if (!isTableProblem(e)) throw e;
+      const msg = e instanceof ServiceNowError && e.status === 400 ? `${p.table}: not available on this instance` : `${p.table}: ${(e as Error).message}`;
+      if (!p.index) c.warnings.push(msg); // the full pull of the same table reports it
+      log(msg);
+    }
+    c.index++; c.fetched = 0; delete c.startAfter;
+    await save();
+  }
+  if (c.phase === 'pulls') { c.phase = 'done'; await save(); }
   return c;
 }
 
@@ -266,9 +306,9 @@ export function snapshotOf(instanceUrl: string, c: CollectCursor, records: SnRec
 export class MemorySink implements CollectSink {
   readonly pages = new Map<number, SnRecord[]>();
   readonly aggregates: Aggregate[] = [];
-  async page(n: number, records: SnRecord[]) { this.pages.set(n, records); }
+  /** Keeps whole records (index pages are only for streaming sinks). */
+  async page(n: number, records: SnRecord[], pull: TablePull) { if (!pull.index) this.pages.set(n, records); }
   async aggregate(a: Aggregate) { const i = this.aggregates.findIndex((x) => x.id === a.id); if (i >= 0) this.aggregates[i] = a; else this.aggregates.push(a); }
-  async records(table: string) { return this.all().filter((r) => r.table === table); }
   async aggregateById(id: string) { return this.aggregates.find((a) => a.id === id); }
   all(): SnRecord[] { return [...this.pages.keys()].sort((a, b) => a - b).flatMap((n) => this.pages.get(n)!); }
 }

@@ -3,10 +3,10 @@ import type { Blueprint } from '@snjsm/model';
 import { isSignedOff, type SiteApi } from '@snjsm/builder';
 import { BuildService, parseBlueprint, safeName, hostOf, type ServiceConfig, type Store } from '@snjsm/workflow';
 import {
-  BasicAuthProvider, ClientCredentialsProvider, ServiceNowError, PasswordGrantProvider, loggingFetch, type RequestLogEntry, STANDARD_PULLS, ServiceNowClient, collectSteps, standardAggregates, normaliseInstanceUrl, snapshotOf, startCursor,
-  type Aggregate, type CollectCursor, type CollectSink, type HttpFetch, type SnRecord, type TokenProvider,
+  BasicAuthProvider, ClientCredentialsProvider, ServiceNowError, PasswordGrantProvider, loggingFetch, type RequestLogEntry, STANDARD_PULLS, ServiceNowClient, collectSteps, standardAggregates, normaliseInstanceUrl, snapshotOf, startCursor, CURSOR_VERSION,
+  type Aggregate, type TablePull, type CollectCursor, type CollectSink, type HttpFetch, type SnRecord, type TokenProvider,
 } from '@snjsm/collector';
-import { analyse, blueprintIdFor } from '@snjsm/analyser';
+import { analyse, blueprintIdFor, extractPage, mergeExtractions, streamContext, stubOf, type ExtractContext, type PreExtracted, type StreamSource, type TableExtraction } from '@snjsm/analyser';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { CHUNK_CHARS, KvStore, type Kv } from './kv-store';
 import { jsmGaps, snInventory, snItems } from './views';
@@ -202,21 +202,37 @@ const jobsPrefix = (blueprintId: string) => `jobs/${safeName(blueprintId)}/`;
 
 interface IndexEntry { id: string; name: string; customer: string; uploadedBy: string; uploadedAt: string; chars: number; outcomes: number; design: number; signedOff: boolean; source?: string }
 
-/** Collected pages and aggregates for one collection, in the store, so a collection survives between invocations. */
 /**
- * Collected pages in app storage: gzip-compressed (ServiceNow JSON shrinks several-fold), keyed per table so reading
- * one table never reads the others. Writing the same page again overwrites it, so replaying from an older cursor is safe.
+ * Collected pages in app storage, gzip-compressed (ServiceNow JSON shrinks several-fold) and keyed per table:
+ * - p/: whole records of the context tables (read by the analysis of other records);
+ * - i/: name indexes (only for analysing streamed pages);
+ * - e/: streamed pages, already turned into evidence, with a small stub per record instead of the record.
+ * Context tables and indexes are pulled before streamed tables, so the first streamed page of an invocation builds
+ * the lookup context once. Writing the same page again overwrites it, so replaying from an older cursor is safe.
  */
+interface EvidencePage { stubs: SnRecord[]; tables: [string, TableExtraction][] }
+
 class StoreSink implements CollectSink {
-  constructor(private readonly store: KvStore, private readonly prefix: string) {}
-  private key(table: string, n: number) { return `${this.prefix}p/${table}/${String(n).padStart(6, '0')}.gz`; }
-  private async readPage(k: string): Promise<SnRecord[]> {
+  private ctx?: ExtractContext;
+  constructor(private readonly store: KvStore, private readonly prefix: string, private readonly src: StreamSource) {}
+  private key(kind: 'p' | 'i' | 'e', table: string, n: number) { return `${this.prefix}${kind}/${table}/${String(n).padStart(6, '0')}.gz`; }
+  private async put(k: string, v: unknown) { await this.store.write(k, gzipSync(Buffer.from(JSON.stringify(v), 'utf8')).toString('base64')); }
+  private async get<T>(k: string): Promise<T | undefined> {
     const t = await this.store.read(k);
-    return t ? (JSON.parse(gunzipSync(Buffer.from(t, 'base64')).toString('utf8')) as SnRecord[]) : [];
+    return t ? (JSON.parse(gunzipSync(Buffer.from(t, 'base64')).toString('utf8')) as T) : undefined;
   }
-  async page(n: number, records: SnRecord[]) {
+  private async pages<T>(kind: 'p' | 'i' | 'e'): Promise<T[]> {
+    const out: T[] = [];
+    for (const k of await this.store.list(`${this.prefix}${kind}/`)) { const v = await this.get<T>(k); if (v) out.push(v); }
+    return out;
+  }
+  async page(n: number, records: SnRecord[], pull: TablePull) {
     if (!records.length) return;
-    await this.store.write(this.key(records[0]!.table, n), gzipSync(Buffer.from(JSON.stringify(records), 'utf8')).toString('base64'));
+    if (pull.index) return this.put(this.key('i', pull.table, n), records);
+    if (!pull.stream) return this.put(this.key('p', records[0]!.table, n), records);
+    this.ctx ??= streamContext([...(await this.pages<SnRecord[]>('p')).flat(), ...(await this.pages<SnRecord[]>('i')).flat()], await this.aggregates(), this.src);
+    const page: EvidencePage = { stubs: records.map(stubOf), tables: [...extractPage(records, this.ctx)] };
+    await this.put(this.key('e', pull.table, n), page);
   }
   async aggregates(): Promise<Aggregate[]> { const t = await this.store.read(`${this.prefix}aggregates.json`); return t ? (JSON.parse(t) as Aggregate[]) : []; }
   async aggregate(a: Aggregate) {
@@ -224,15 +240,10 @@ class StoreSink implements CollectSink {
     await this.store.write(`${this.prefix}aggregates.json`, JSON.stringify([...all, a]));
   }
   async aggregateById(id: string) { return (await this.aggregates()).find((a) => a.id === id); }
-  async all(): Promise<SnRecord[]> {
-    const out: SnRecord[] = [];
-    for (const k of await this.store.list(`${this.prefix}p/`)) for (const r of await this.readPage(k)) out.push(r);
-    return out;
-  }
-  async records(table: string) {
-    const out: SnRecord[] = [];
-    for (const k of await this.store.list(`${this.prefix}p/${table}/`)) for (const r of await this.readPage(k)) out.push(r);
-    return out;
+  /** For the analysis: whole context records, stubs of streamed records, and the streamed evidence. */
+  async collected(): Promise<{ records: SnRecord[]; pre: PreExtracted }> {
+    const ev = await this.pages<EvidencePage>('e');
+    return { records: [...(await this.pages<SnRecord[]>('p')).flat(), ...ev.flatMap((p) => p.stubs)], pre: mergeExtractions(ev.map((p) => new Map(p.tables))) };
   }
   async clear() { for (const k of await this.store.list(this.prefix)) await this.store.remove(k); }
 }
@@ -803,7 +814,9 @@ export class Workbench {
     const job = await this.loadJob(COLLECT, p.jobId);
     if (!job || job.op !== 'collect') throw new Error(`collection ${p.jobId} not found`);
     if (job.status !== 'failed') throw new Error(`collection ${p.jobId} is ${job.status}; only a failed collection can be resumed`);
-    if ((await this.store.read(`collections/${job.id}/cursor.json`)) === undefined) throw new Error('nothing to resume from: start a new collection');
+    const saved = await this.store.read(`collections/${job.id}/cursor.json`);
+    if (saved === undefined) throw new Error('nothing to resume from: start a new collection');
+    if (((JSON.parse(saved) as CollectCursor).version ?? 1) !== CURSOR_VERSION) throw new Error('this collection was started by an earlier version of the app and cannot be resumed; start a new collection');
     const active = await this.activeJob(COLLECT);
     if (active) throw new Error(`a collection is already ${active.status} (job ${active.id})`);
     const step = (job.step ?? 0) + 1;
@@ -844,7 +857,7 @@ export class Workbench {
       const c = await this.connectionRecord(profile);
       if (!c || c.instance !== job.collect?.instance) return await fail('the ServiceNow connection changed or was removed during the collection; start a new one');
       const { client } = await this.snClient(c, profile, log);
-      const sink = new StoreSink(this.store, prefix);
+      const sink = new StoreSink(this.store, prefix, { instance: c.instance, capturedAt: running.startedAt!, usageDays: c.usageDays });
       const saved = await this.store.read(`${prefix}cursor.json`);
       const from: CollectCursor = saved ? (JSON.parse(saved) as CollectCursor) : startCursor();
       log.event(`collection ${job.id} step ${step + 1}: ${from.phase} ${from.index}${from.startAfter ? ' (mid-table)' : ''}`);
@@ -883,9 +896,9 @@ export class Workbench {
       }
 
       // Done: analyse, admit (never signed off), store as a blueprint, and drop the collected pages.
-      const records = await sink.all();
-      const snapshot = snapshotOf(c.instance, cursor, records, await sink.aggregates(), c.usageDays, this.now().toISOString());
-      const bp = this.admit(analyse(snapshot, { customer: job.collect.customer, now: this.now().toISOString() }).blueprint, me);
+      const { records, pre } = await sink.collected();
+      const snapshot = snapshotOf(c.instance, cursor, records, await sink.aggregates(), c.usageDays, running.startedAt!);
+      const bp = this.admit(analyse(snapshot, { customer: job.collect.customer, now: this.now().toISOString() }, pre).blueprint, me);
       const key = bpKey(bp.id);
       const exists = (await this.store.read(key)) !== undefined;
       if (exists && !job.collect.replace) return await fail(`blueprint ${bp.id} appeared in the workbench during the collection; resume after choosing replace, or start again with replace`);

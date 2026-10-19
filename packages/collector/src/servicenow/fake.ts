@@ -9,7 +9,7 @@ import type { HttpFetch, HttpResponse } from './http';
  */
 export class FakeServiceNow {
   readonly instanceUrl: string;
-  readonly requests: { method: string; path: string }[] = [];
+  readonly requests: { method: string; path: string; query: string }[] = [];
   private readonly tables = new Map<string, Record<string, string>[]>();
   private issued = 0;
   /** Valid credentials; a grant succeeds only with these. */
@@ -43,7 +43,7 @@ export class FakeServiceNow {
   private async handle(url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpResponse> {
     const u = new URL(url);
     if (`${u.protocol}//${u.host}` !== this.instanceUrl) return this.json(404, { error: 'unknown host' });
-    this.requests.push({ method: init.method, path: u.pathname });
+    this.requests.push({ method: init.method, path: u.pathname, query: u.searchParams.get('sysparm_query') ?? '' });
     if (u.pathname === '/oauth_token.do' && init.method === 'POST') return this.token(new URLSearchParams(init.body ?? ''));
     if (init.method !== 'GET') return this.json(405, { error: { message: 'read-only fake' } });
     const authz = init.headers.Authorization ?? '';
@@ -70,9 +70,8 @@ export class FakeServiceNow {
   private rows(table: string, query: string): Record<string, string>[] | undefined {
     const list = this.tables.get(table);
     if (!list) return undefined;
-    const after = /(?:^|\^)sys_id>([0-9a-f]{32})/.exec(query)?.[1];
-    const names = /(?:^|\^)nameIN([^^]+)/.exec(query)?.[1]?.split(',');
-    return list.filter((r) => (!after || r.sys_id! > after) && (!names || table === 'sys_dictionary' || table === 'sys_choice' || names.includes(r.name ?? '')));
+    const match = compileQuery(query);
+    return list.filter(match);
   }
 
   private table(table: string, q: URLSearchParams): HttpResponse {
@@ -102,4 +101,44 @@ export class FakeServiceNow {
     }
     return this.json(200, { result: [...counts.values()].map((e) => ({ groupby_fields: e.fields, stats: { count: String(e.count) } })) });
   }
+}
+
+/**
+ * A small ServiceNow encoded-query evaluator: `^` is AND, `^OR` joins the previous condition, ORDERBY is ignored.
+ * Lenient on purpose: a condition on a field the fixture row does not have matches, so sparse fixtures still flow.
+ */
+export function compileQuery(query: string): (r: Record<string, string>) => boolean {
+  const groups: ((r: Record<string, string>) => boolean)[][] = [];
+  for (const raw of query.split('^').filter(Boolean)) {
+    if (/^(ORDERBY|ORDERBYDESC)/.test(raw)) continue;
+    // Field names are lower case, so an upper-case OR prefix is unambiguous.
+    const isOr = groups.length > 0 && /^OR[a-z]/.test(raw);
+    const cond = condition(isOr ? raw.slice(2) : raw);
+    if (isOr) groups[groups.length - 1]!.push(cond); else groups.push([cond]);
+  }
+  return (r) => groups.every((g) => g.some((c) => c(r)));
+}
+
+function condition(term: string): (r: Record<string, string>) => boolean {
+  const m = /^([a-z0-9_.]+?)(ISNOTEMPTY|ISEMPTY|STARTSWITH|NOT IN|IN|!=|>=|<=|>|<|=)(.*)$/.exec(term);
+  if (!m) return () => true;
+  const [, field, op, value] = m as unknown as [string, string, string, string];
+  return (r) => {
+    const v = r[field!];
+    if (v === undefined) return true;
+    switch (op) {
+      case 'ISNOTEMPTY': return v !== '';
+      case 'ISEMPTY': return v === '';
+      case 'STARTSWITH': return v.startsWith(value);
+      case 'IN': return value.split(',').includes(v);
+      case 'NOT IN': return !value.split(',').includes(v);
+      case '!=': return value === 'NULL' ? v !== '' : v !== value;
+      case '=': return value === 'NULL' ? v === '' : v === value;
+      case '>': return v > value;
+      case '<': return v < value;
+      case '>=': return v >= value;
+      case '<=': return v <= value;
+      default: return true;
+    }
+  };
 }

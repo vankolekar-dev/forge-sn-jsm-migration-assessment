@@ -12,3 +12,4 @@ export * from './fitgap';
 export * from './score';
 export * from './analyse';
 export * from './report';
+export * from './stream';

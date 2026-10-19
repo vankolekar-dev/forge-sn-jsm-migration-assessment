@@ -8,7 +8,7 @@ import { assessCmdb } from './assess/cmdb';
 import type { AreaAssessment } from './assess/types';
 import { cmdbFacts, type CmdbFacts } from './cmdb';
 import { detectCapabilities, detectPractices, type CapabilityDetection, type PracticeDetection } from './detect';
-import { extractEvidence } from './extract';
+import { extractEvidence, type PreExtracted } from './extract';
 import { buildability, fitGap, type Buildability } from './fitgap';
 import { deriveCapability } from './outcomes';
 import type { ParamResolution } from './params';
@@ -96,10 +96,14 @@ function unknownsOf(snapshot: Snapshot, store: RecordStore, cmdb: CmdbFacts, evi
 }
 
 /** Snapshot → assessment + Migration Blueprint (outcomes proposed, design from the Atlassian reference). */
-export function analyse(snapshot: Snapshot, opts: AnalyseOptions): AnalysisResult {
+/**
+ * `pre`: evidence of streamed tables extracted page by page during collection (their snapshot records are stubs,
+ * see stubOf); the result is the same as analysing the full records.
+ */
+export function analyse(snapshot: Snapshot, opts: AnalyseOptions, pre?: PreExtracted): AnalysisResult {
   const now = opts.now ?? new Date().toISOString();
   const store = new RecordStore(snapshot);
-  const extraction = extractEvidence(snapshot, store);
+  const extraction = extractEvidence(snapshot, store, pre);
   const evidence = extraction.evidence;
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const hasUsage = store.hasUsage;
