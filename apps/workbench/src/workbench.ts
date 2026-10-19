@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { Blueprint } from '@snjsm/model';
 import { isSignedOff, type SiteApi } from '@snjsm/builder';
-import { BuildService, parseBlueprint, safeName, hostOf, type ServiceConfig } from '@snjsm/workflow';
+import { BuildService, parseBlueprint, safeName, hostOf, type ServiceConfig, type Store } from '@snjsm/workflow';
 import {
-  ClientCredentialsProvider, PasswordGrantProvider, STANDARD_PULLS, ServiceNowClient, collectSteps, standardAggregates, normaliseInstanceUrl, snapshotOf, startCursor,
+  BasicAuthProvider, ClientCredentialsProvider, ServiceNowError, PasswordGrantProvider, loggingFetch, type RequestLogEntry, STANDARD_PULLS, ServiceNowClient, collectSteps, standardAggregates, normaliseInstanceUrl, snapshotOf, startCursor,
   type Aggregate, type CollectCursor, type CollectSink, type HttpFetch, type SnRecord, type TokenProvider,
 } from '@snjsm/collector';
 import { analyse, blueprintIdFor } from '@snjsm/analyser';
@@ -70,22 +70,55 @@ export interface Job {
   step?: number; heartbeatAt?: string;
   /** Within the phase: item `index` of `total` (pulls, aggregates or CI classes); `records` only once done. */
   progress?: Progress;
-  collect?: { customer: string; instance: string; replace: boolean };
+  collect?: { customer: string; instance: string; replace: boolean; profile?: Profile };
 }
 
 /** ServiceNow connection: what is shown to admins. The client secret and password live in secret storage only. */
 export interface Connection {
   instance: string;
-  grant: 'client_credentials' | 'password';
+  grant: 'client_credentials' | 'password' | 'basic';
   clientId: string;
   username?: string;
+  scope?: string;
   customer: string;
   usageDays: number;
   requestsPerSecond: number;
   updatedBy: string; updatedAt: string;
   lastTest?: { ok: boolean; at: string; release?: string; checks: { name: string; ok: boolean; detail: string }[] };
 }
-interface ConnectionSecret { clientSecret: string; password?: string }
+interface ConnectionSecret { clientSecret?: string; password?: string }
+
+/**
+ * Two independent connections: OAuth for customer instances, and basic auth (user name and password) for demos and
+ * developer instances. Each has its own record, secret and request log; the OAuth keys predate profiles.
+ */
+export type Profile = 'oauth' | 'basic';
+const PROFILES: Record<Profile, { conn: string; secret: string; log: string }> = {
+  oauth: { conn: 'sn-connection', secret: 'sn-secret', log: 'logs/sn-oauth.json' },
+  basic: { conn: 'sn-connection-basic', secret: 'sn-secret-basic', log: 'logs/sn-basic.json' },
+};
+
+/** A ServiceNow request (`kind: 'http'`) or a workbench event, newest last. */
+export type LogEntry = ({ kind: 'http' } & RequestLogEntry) | { kind: 'event'; at: string; level: 'info' | 'error'; message: string };
+const LOG_KEEP = 250;
+const LOG_FLUSH_MS = 10_000;
+
+/** Buffers log entries in memory and appends them to the stored ring when flushed (each flush is one write). */
+class SnLog {
+  private pending: LogEntry[] = [];
+  private lastFlush: number;
+  constructor(private readonly store: Store, private readonly key: string, private readonly now: () => number) { this.lastFlush = now(); }
+  http = (e: RequestLogEntry) => { this.pending.push({ kind: 'http', ...e }); };
+  event(message: string, level: 'info' | 'error' = 'info') { this.pending.push({ kind: 'event', at: new Date(this.now()).toISOString(), level, message }); }
+  async flush(force = true) {
+    if (!this.pending.length || (!force && this.now() - this.lastFlush < LOG_FLUSH_MS)) return;
+    const batch = this.pending; this.pending = []; this.lastFlush = this.now();
+    try {
+      const prev = JSON.parse((await this.store.read(this.key)) ?? '[]') as LogEntry[];
+      await this.store.write(this.key, JSON.stringify([...prev, ...batch].slice(-LOG_KEEP)));
+    } catch { /* diagnostics must never break a test or a collection */ }
+  }
+}
 
 /** Jobs that collect from ServiceNow are listed under this pseudo blueprint id. */
 export const COLLECT = 'sn-collect';
@@ -119,17 +152,31 @@ const P = {
   report: z.object({ key: z.string().max(400) }),
   acceptancePlan: z.object({ blueprintId: id, outcomeIds: z.array(z.string().max(200)).max(200).optional() }),
   connection: z.object({
+    profile: z.literal('oauth').optional(),
     instance: z.string().min(3).max(200),
     grant: z.enum(['client_credentials', 'password']),
     clientId: z.string().min(1).max(200),
     clientSecret: z.string().max(500).optional(),
     username: z.string().max(200).optional(),
+    /** OAuth scope to request; only for integrations that restrict auth scopes (usually `useraccount`). */
+    scope: z.string().regex(/^[\w.:\- ]{0,200}$/, 'scope: letters, digits, . : - and spaces only').optional(),
     password: z.string().max(500).optional(),
-    customer: z.string().min(1).max(120),
+    /** Shown on the blueprint and in its id; defaults to the instance name. */
+    customer: z.string().max(120).optional(),
     usageDays: z.number().int().min(1).max(1095).optional(),
     requestsPerSecond: z.number().min(0.5).max(10).optional(),
   }),
-  collect: z.object({ replace: z.boolean().optional() }),
+  basicConnection: z.object({
+    profile: z.literal('basic'),
+    instance: z.string().min(3).max(200),
+    username: z.string().min(1).max(200),
+    password: z.string().max(500).optional(),
+    customer: z.string().max(120).optional(),
+    usageDays: z.number().int().min(1).max(1095).optional(),
+    requestsPerSecond: z.number().min(0.5).max(10).optional(),
+  }),
+  profile: z.object({ profile: z.enum(['oauth', 'basic']).optional() }),
+  collect: z.object({ replace: z.boolean().optional(), profile: z.enum(['oauth', 'basic']).optional() }),
   resume: z.object({ jobId: id }),
   settings: z.object({
     signers: z.array(accountId).max(100).optional(),
@@ -517,21 +564,31 @@ export class Workbench {
 
   // ── ServiceNow connection: collect and analyse instead of uploading ──────
 
-  private async connectionRecord(): Promise<Connection | undefined> {
-    return this.platform.kv.get<Connection>('sn-connection');
+  private profileOf(payload: unknown): Profile {
+    return parse(P.profile, payload ?? {}).profile ?? 'oauth';
+  }
+
+  private async connectionRecord(profile: Profile): Promise<Connection | undefined> {
+    return this.platform.kv.get<Connection>(PROFILES[profile].conn);
+  }
+
+  private snLog(profile: Profile) {
+    return new SnLog(this.store, PROFILES[profile].log, () => this.now().getTime());
   }
 
   /** The connection as admins see it: never the client secret or password, only whether they are stored. */
-  async connection(caller: Caller) {
+  async connection(caller: Caller, payload?: unknown) {
+    const profile = this.profileOf(payload);
     await this.need(caller, 'admin');
-    const c = await this.connectionRecord();
-    const secret = c ? await this.platform.kv.getSecret<ConnectionSecret>('sn-secret') : undefined;
+    const c = await this.connectionRecord(profile);
+    const secret = c ? await this.platform.kv.getSecret<ConnectionSecret>(PROFILES[profile].secret) : undefined;
     return {
+      profile,
       connection: c ?? null,
       hasClientSecret: Boolean(secret?.clientSecret),
       hasPassword: Boolean(secret?.password),
       nextBlueprintId: c ? blueprintIdFor(c.customer, this.now().toISOString()) : null,
-      jobs: await this.collectJobs(),
+      jobs: (await this.collectJobs()).filter((j) => (j.collect?.profile ?? 'oauth') === profile),
     };
   }
 
@@ -543,11 +600,13 @@ export class Workbench {
   }
 
   async saveConnection(caller: Caller, payload: unknown) {
+    if ((payload as { profile?: unknown } | null)?.profile === 'basic') return this.saveBasicConnection(caller, payload);
     const p = parse(P.connection, payload);
     await this.need(caller, 'admin');
+    const keys = PROFILES.oauth;
     const instance = normaliseInstanceUrl(p.instance);
-    const prev = await this.connectionRecord();
-    const prevSecret = prev ? await this.platform.kv.getSecret<ConnectionSecret>('sn-secret') : undefined;
+    const prev = await this.connectionRecord('oauth');
+    const prevSecret = prev ? await this.platform.kv.getSecret<ConnectionSecret>(keys.secret) : undefined;
     // A stored secret is only reused for the same instance, client and user; otherwise it must be entered again.
     const same = prev && prev.instance === instance && prev.clientId === p.clientId && (p.grant !== 'password' || prev.username === p.username);
     const clientSecret = p.clientSecret || (same ? prevSecret?.clientSecret : undefined);
@@ -560,57 +619,128 @@ export class Workbench {
     }
     const c: Connection = {
       instance, grant: p.grant, clientId: p.clientId, ...(p.grant === 'password' ? { username: p.username! } : {}),
-      customer: p.customer.trim(), usageDays: p.usageDays ?? 365, requestsPerSecond: p.requestsPerSecond ?? 4,
+      ...(p.scope?.trim() ? { scope: p.scope.trim() } : {}),
+      customer: p.customer?.trim() || new URL(instance).hostname.split('.')[0]!, usageDays: p.usageDays ?? 365, requestsPerSecond: p.requestsPerSecond ?? 4,
       updatedBy: caller.accountId, updatedAt: this.now().toISOString(),
     };
-    await this.platform.kv.setSecret('sn-secret', { clientSecret, ...(password ? { password } : {}) } satisfies ConnectionSecret);
-    await this.platform.kv.set('sn-connection', c);
-    return this.connection(caller);
+    await this.platform.kv.setSecret(keys.secret, { clientSecret, ...(password ? { password } : {}) } satisfies ConnectionSecret);
+    await this.platform.kv.set(keys.conn, c);
+    return this.connection(caller, { profile: 'oauth' });
   }
 
-  async removeConnection(caller: Caller) {
+  /** Basic auth (demo) connection: a ServiceNow user name and password, nothing else. */
+  private async saveBasicConnection(caller: Caller, payload: unknown) {
+    const p = parse(P.basicConnection, payload);
     await this.need(caller, 'admin');
-    await this.platform.kv.deleteSecret('sn-secret');
-    await this.platform.kv.delete('sn-connection');
-    return this.connection(caller);
+    const keys = PROFILES.basic;
+    const instance = normaliseInstanceUrl(p.instance);
+    const username = p.username.trim();
+    const prev = await this.connectionRecord('basic');
+    const prevSecret = prev ? await this.platform.kv.getSecret<ConnectionSecret>(keys.secret) : undefined;
+    const same = prev && prev.instance === instance && prev.username === username;
+    const password = p.password || (same ? prevSecret?.password : undefined);
+    if (!password) throw new Error("enter the ServiceNow user's password");
+    const c: Connection = {
+      instance, grant: 'basic', clientId: '', username,
+      customer: p.customer?.trim() || new URL(instance).hostname.split('.')[0]!, usageDays: p.usageDays ?? 365, requestsPerSecond: p.requestsPerSecond ?? 4,
+      updatedBy: caller.accountId, updatedAt: this.now().toISOString(),
+    };
+    await this.platform.kv.setSecret(keys.secret, { password } satisfies ConnectionSecret);
+    await this.platform.kv.set(keys.conn, c);
+    const log = this.snLog('basic');
+    log.event(`connection saved for ${instance} as ${username}`);
+    await log.flush();
+    return this.connection(caller, { profile: 'basic' });
   }
 
-  private async snClient(c: Connection): Promise<{ client: ServiceNowClient; auth: TokenProvider }> {
-    const secret = await this.platform.kv.getSecret<ConnectionSecret>('sn-secret');
-    if (!secret?.clientSecret) throw new Error('the ServiceNow connection has no stored secret: save the connection again');
-    const http = this.platform.snFetch;
-    const auth: TokenProvider = c.grant === 'password'
-      ? new PasswordGrantProvider(c.instance, { clientId: c.clientId, clientSecret: secret.clientSecret, username: c.username ?? '', password: secret.password ?? '' }, http)
-      : new ClientCredentialsProvider(c.instance, c.clientId, secret.clientSecret, http);
+  async removeConnection(caller: Caller, payload?: unknown) {
+    const profile = this.profileOf(payload);
+    await this.need(caller, 'admin');
+    await this.platform.kv.deleteSecret(PROFILES[profile].secret);
+    await this.platform.kv.delete(PROFILES[profile].conn);
+    return this.connection(caller, { profile });
+  }
+
+  /** Recent ServiceNow requests and events for a connection, newest first. Never credentials or tokens. */
+  async snLogs(caller: Caller, payload?: unknown) {
+    const profile = this.profileOf(payload);
+    await this.need(caller, 'admin');
+    const entries = JSON.parse((await this.store.read(PROFILES[profile].log)) ?? '[]') as LogEntry[];
+    return { profile, entries: entries.reverse() };
+  }
+
+  async clearSnLogs(caller: Caller, payload?: unknown) {
+    const profile = this.profileOf(payload);
+    await this.need(caller, 'admin');
+    await this.store.write(PROFILES[profile].log, '[]');
+    return { profile, entries: [] as LogEntry[] };
+  }
+
+  private async snClient(c: Connection, profile: Profile, log?: SnLog): Promise<{ client: ServiceNowClient; auth: TokenProvider }> {
+    const secret = await this.platform.kv.getSecret<ConnectionSecret>(PROFILES[profile].secret);
+    const http = log ? loggingFetch(this.platform.snFetch, log.http, () => this.now().getTime()) : this.platform.snFetch;
+    let auth: TokenProvider;
+    if (c.grant === 'basic') {
+      if (!secret?.password) throw new Error('the demo connection has no stored password: save it again');
+      auth = new BasicAuthProvider(c.username ?? '', secret.password);
+    } else {
+      if (!secret?.clientSecret) throw new Error('the ServiceNow connection has no stored secret: save the connection again');
+      auth = c.grant === 'password'
+        ? new PasswordGrantProvider(c.instance, { clientId: c.clientId, clientSecret: secret.clientSecret, username: c.username ?? '', password: secret.password ?? '', ...(c.scope ? { scope: c.scope } : {}) }, http)
+        : new ClientCredentialsProvider(c.instance, c.clientId, secret.clientSecret, http, Date.now, c.scope);
+    }
     return { auth, client: new ServiceNowClient({ instanceUrl: c.instance, auth, fetch: http, maxRequestsPerSecond: c.requestsPerSecond, pageSize: 500, ...(this.platform.sleep ? { sleep: this.platform.sleep } : {}) }) };
   }
 
-  /** Token, instance version, a table read and a count: each reported separately, so a missing grant is obvious. */
-  async testConnection(caller: Caller) {
+  /** Sign-in, instance version, a table read and a count: each reported separately, so a missing grant is obvious. */
+  async testConnection(caller: Caller, payload?: unknown) {
+    const profile = this.profileOf(payload);
     await this.need(caller, 'admin');
-    const c = await this.connectionRecord();
+    const c = await this.connectionRecord(profile);
     if (!c) throw new Error('save a ServiceNow connection first');
+    const log = this.snLog(profile);
+    log.event(`test started: ${c.instance}, ${c.grant === 'basic' ? `basic auth as ${c.username}` : `OAuth ${c.grant}`}`);
     const checks: { name: string; ok: boolean; detail: string }[] = [];
     const check = async (name: string, fn: () => Promise<string>) => {
-      try { checks.push({ name, ok: true, detail: await fn() }); return true; } catch (e) { checks.push({ name, ok: false, detail: (e as Error).message }); return false; }
+      try { checks.push({ name, ok: true, detail: await fn() }); log.event(`✓ ${name}: ${checks.at(-1)!.detail}`); return true; } catch (e) {
+        checks.push({ name, ok: false, detail: (e as Error).message }); log.event(`✗ ${name}: ${(e as Error).message}`, 'error'); return false;
+      }
     };
-    const { client, auth } = await this.snClient(c);
-    let release: string | undefined;
-    if (await check('OAuth token', async () => { await auth.getToken(true); return 'issued'; })) {
-      await check('Instance version (sys_properties)', async () => { release = (await client.instanceInfo()).build; return release ?? 'unknown (no read on sys_properties)'; });
-      await check('Catalog items (Table API)', async () => { for await (const p of client.iterateTable('sc_cat_item', { fields: ['name'], limit: 1 })) return `readable (${p.records.length} sampled)`; return 'readable (empty)'; });
-      await check('Counts (Aggregate API)', async () => `${await client.count('sys_user_group')} groups`);
+    try {
+      const { client, auth } = await this.snClient(c, profile, log);
+      let release: string | undefined;
+      const signIn = c.grant === 'basic'
+        // Any answer but 401 means the credentials were accepted; 403 only means no read on that table.
+        ? check('Sign in (basic auth)', async () => {
+          try { await client.get('/api/now/table/sys_properties?sysparm_query=name%3Dglide.buildname&sysparm_fields=name&sysparm_limit=1'); } catch (e) {
+            if (!(e instanceof ServiceNowError) || e.status !== 403) throw e;
+          }
+          return `signed in as ${c.username}`;
+        })
+        : check('OAuth token', async () => { await auth.getToken(true); return 'issued'; });
+      if (await signIn) {
+        await check('Instance version (sys_properties)', async () => { release = (await client.instanceInfo()).build; return release ?? 'unknown (no read on sys_properties)'; });
+        await check('Catalog items (Table API)', async () => { for await (const p of client.iterateTable('sc_cat_item', { fields: ['name'], limit: 1 })) return `readable (${p.records.length} sampled)`; return 'readable (empty)'; });
+        await check('Counts (Aggregate API)', async () => `${await client.count('sys_user_group')} groups`);
+      }
+      const ok = checks.every((x) => x.ok);
+      log.event(`test ${ok ? 'passed' : 'failed'}`, ok ? 'info' : 'error');
+      await this.platform.kv.set(PROFILES[profile].conn, { ...c, lastTest: { ok, at: this.now().toISOString(), ...(release ? { release } : {}), checks } } satisfies Connection);
+      return { ok, release: release ?? null, checks };
+    } catch (e) {
+      log.event(`test could not run: ${(e as Error).message}`, 'error');
+      throw e;
+    } finally {
+      await log.flush();
     }
-    const ok = checks.every((x) => x.ok);
-    await this.platform.kv.set('sn-connection', { ...c, lastTest: { ok, at: this.now().toISOString(), ...(release ? { release } : {}), checks } } satisfies Connection);
-    return { ok, release: release ?? null, checks };
   }
 
   /** Start collecting from ServiceNow; the analysis at the end becomes a blueprint (not signed off). */
   async startCollection(caller: Caller, payload: unknown) {
     const p = parse(P.collect, payload);
+    const profile = p.profile ?? 'oauth';
     await this.need(caller, 'admin');
-    const c = await this.connectionRecord();
+    const c = await this.connectionRecord(profile);
     if (!c) throw new Error('save a ServiceNow connection first');
     const target = blueprintIdFor(c.customer, this.now().toISOString());
     if (!p.replace && (await this.store.read(bpKey(target))) !== undefined) {
@@ -620,10 +750,13 @@ export class Workbench {
     if (active) throw new Error(`a collection is already ${active.status} (job ${active.id}); wait for it to finish`);
     const job: Job = {
       id: this.newId(), op: 'collect', blueprintId: COLLECT, by: caller.accountId, status: 'queued', queuedAt: this.now().toISOString(),
-      collect: { customer: c.customer, instance: c.instance, replace: Boolean(p.replace) },
+      collect: { customer: c.customer, instance: c.instance, replace: Boolean(p.replace), profile },
     };
     await this.saveJob(job);
     await this.pruneJobs(COLLECT);
+    const log = this.snLog(profile);
+    log.event(`collection ${job.id} queued for ${c.instance}`);
+    await log.flush();
     await this.enqueueCollect(job, 0);
     return job;
   }
@@ -642,6 +775,9 @@ export class Workbench {
     const { error: _e, finishedAt: _f, ...rest } = job;
     const resumed: Job = { ...rest, status: 'running', step, heartbeatAt: this.now().toISOString() };
     await this.saveJob(resumed);
+    const log = this.snLog(job.collect?.profile ?? 'oauth');
+    log.event(`collection ${job.id} resumed from its last checkpoint`);
+    await log.flush();
     await this.enqueueCollect(resumed, step);
     return resumed;
   }
@@ -659,35 +795,46 @@ export class Workbench {
   private async runCollect(job: Job, step: number, me: Caller): Promise<Job> {
     const started = this.now().getTime();
     const prefix = `collections/${job.id}/`;
+    const profile = job.collect?.profile ?? 'oauth';
+    const log = this.snLog(profile);
     let running: Job = { ...job, status: 'running', step, heartbeatAt: new Date(started).toISOString(), ...(job.startedAt ? {} : { startedAt: new Date(started).toISOString() }) };
     await this.saveJob(running);
     const fail = async (message: string) => {
+      log.event(`collection ${job.id} failed: ${message}`, 'error');
       const failed: Job = { ...running, status: 'failed', finishedAt: this.now().toISOString(), error: message };
       await this.saveJob(failed);
       return failed;
     };
     try {
-      const c = await this.connectionRecord();
+      const c = await this.connectionRecord(profile);
       if (!c || c.instance !== job.collect?.instance) return await fail('the ServiceNow connection changed or was removed during the collection; start a new one');
-      const { client } = await this.snClient(c);
+      const { client } = await this.snClient(c, profile, log);
       const sink = new StoreSink(this.store, prefix);
       const saved = await this.store.read(`${prefix}cursor.json`);
       const from: CollectCursor = saved ? (JSON.parse(saved) as CollectCursor) : startCursor();
+      log.event(`collection ${job.id} step ${step + 1}: ${from.phase} ${from.index}${from.startAfter ? ' (mid-table)' : ''}`);
       const totals = { info: 1, pulls: STANDARD_PULLS.length, aggregates: standardAggregates(c.usageDays).length, done: 0 };
       const progress = (x: CollectCursor): Progress => ({
         phase: x.phase, index: x.index, total: x.phase === 'fill' ? (x.fill?.length ?? 0) : totals[x.phase], pages: x.pages, warnings: x.warnings.length,
       });
       let moved = false;
+      let warned = from.warnings.length;
       const cursor = await collectSteps(client, from, sink, {
         usageDays: c.usageDays,
         // Every step reaches at least one checkpoint before it may stop, so a chain of steps always moves forward.
         shouldStop: () => moved && this.now().getTime() - started >= this.collectBudgetMs,
-        checkpoint: async (x) => { await this.store.write(`${prefix}cursor.json`, JSON.stringify(x)); moved = true; },
+        checkpoint: async (x) => {
+          await this.store.write(`${prefix}cursor.json`, JSON.stringify(x)); moved = true;
+          for (const w of x.warnings.slice(warned)) log.event(`warning: ${w}`);
+          warned = x.warnings.length;
+          await log.flush(false);
+        },
       });
       await this.store.write(`${prefix}cursor.json`, JSON.stringify(cursor));
       if (cursor.phase !== 'done') {
         running = { ...running, step: step + 1, heartbeatAt: this.now().toISOString(), progress: progress(cursor) };
         await this.saveJob(running);
+        log.event(`collection ${job.id} paused at ${cursor.phase} ${cursor.index} after ${cursor.pages} pages; next step queued`);
         try {
           await this.platform.enqueue({ jobId: job.id, blueprintId: COLLECT, step: step + 1 }, `bp-${COLLECT}`);
         } catch (e) {
@@ -712,9 +859,12 @@ export class Workbench {
         result: { blueprintId: bp.id, replaced: exists, release: cursor.release ?? null, records: records.length, aggregates: snapshot.aggregates.length, warnings: cursor.warnings.slice(0, 50), warningCount: cursor.warnings.length, outcomes: bp.outcomes.length, design: bp.design.length },
       };
       await this.saveJob(done);
+      log.event(`collection ${job.id} done: blueprint ${bp.id} from ${records.length} records, ${cursor.warnings.length} warnings`);
       return done;
     } catch (e) {
       return await fail(`${(e as Error).message ?? String(e)} (the collection can be resumed from its last checkpoint)`);
+    } finally {
+      await log.flush();
     }
   }
 

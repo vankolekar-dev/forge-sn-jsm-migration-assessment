@@ -85,7 +85,14 @@ export function platformFor(site: Omit<Caller, 'accountId'>, userActor?: Actor):
     client: (actor, readOnly) => new ForgeSiteClient({ siteUrl: site.siteUrl, cloudId: site.cloudId, request: productRequest(actor), readOnly }),
     async isAdmin() {
       if (!userActor || userActor.as !== 'user') return false;
-      const res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`, { headers: { Accept: 'application/json' } });
+      // A rate limit or server error is not a "no": retry, then fail loudly rather than deny an administrator.
+      let res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`, { headers: { Accept: 'application/json' } });
+      for (let attempt = 1; attempt <= 3 && (res.status === 429 || res.status >= 500); attempt++) {
+        const wait = Math.min(Number(res.headers.get('retry-after')) * 1000 || 500 * 2 ** attempt, 4000);
+        await new Promise((r) => setTimeout(r, wait));
+        res = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`, { headers: { Accept: 'application/json' } });
+      }
+      if (res.status === 429 || res.status >= 500) throw new Error(`could not check your Jira permissions (HTTP ${res.status}); try again`);
       if (!res.ok) return false;
       const j = (await res.json()) as { permissions?: { ADMINISTER?: { havePermission?: boolean } } };
       return j.permissions?.ADMINISTER?.havePermission === true;

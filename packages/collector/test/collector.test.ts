@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  BasicAuthProvider,
+  loggingFetch,
+  type RequestLogEntry,
   ClientCredentialsProvider, FakeServiceNow, HttpFetch, MemorySink, PasswordGrantProvider, STANDARD_PULLS, ServiceNowClient, StaticTokenProvider,
   collectLive, collectSteps, explainOAuthError, normaliseInstanceUrl, normaliseRow, parseXml, snapshotFromXml, snapshotOf, standardAggregates, startCursor,
   type CollectCursor,
@@ -62,6 +65,41 @@ describe('oauth client credentials', () => {
     const p = new ClientCredentialsProvider('https://x.service-now.com', 'cid', 'secret', fn);
     await expect(p.getToken()).rejects.toThrow(/glide\.oauth\.inbound\.client\.credential\.grant_type\.enabled/);
     expect(explainOAuthError('invalid_client')).toMatch(/Re-copy/);
+    // What we saw on a Zurich instance: say exactly what ServiceNow said, and the switch that fixes it.
+    expect(explainOAuthError('disabled_grant_type', "'password' grant type is disabled", 'password')).toMatch(/ropc\.grant_type\.disabled = false.*ServiceNow said: disabled_grant_type: 'password' grant type is disabled/);
+    expect(explainOAuthError('access_denied', undefined, 'password')).toMatch(/Client credentials grant" does not/);
+    expect(explainOAuthError('access_denied')).toMatch(/default grant type.*System Logs.*crypto module/);
+  });
+
+  it('authenticates with basic auth when configured, and explains a rejected password', async () => {
+    const sn = new FakeServiceNow([]);
+    const c = new ServiceNowClient({ instanceUrl: sn.instanceUrl, auth: new BasicAuthProvider('svc.migration', 'pw-1'), fetch: sn.fetch, maxRequestsPerSecond: 1000, sleep: noSleep });
+    expect(await c.count('sys_user_group')).toBeGreaterThanOrEqual(0);
+    const bad = new ServiceNowClient({ instanceUrl: sn.instanceUrl, auth: new BasicAuthProvider('svc.migration', 'nope'), fetch: sn.fetch, maxRequestsPerSecond: 1000, sleep: noSleep });
+    await expect(bad.count('sys_user_group')).rejects.toThrow(/user name or password \(401\)/);
+  });
+
+  it('logs every exchange without credentials, and redacts tokens in error bodies', async () => {
+    const log: RequestLogEntry[] = [];
+    const { fn } = fakeFetch((c) => c.url.includes('oauth') ? res(400, { error: 'invalid_scope', access_token: 'leaked-token' }) : res(200, { result: [] }));
+    const http = loggingFetch(fn, (e) => log.push(e));
+    const r = await http('https://x.service-now.com/oauth_token.do', { method: 'POST', headers: {}, body: 'client_secret=s3cret' });
+    expect(await r.text()).toContain('leaked-token'); // the caller still gets the real body
+    await http('https://x.service-now.com/api/now/table/sys_user?sysparm_limit=1', { method: 'GET', headers: { Authorization: 'Basic abc' } });
+    expect(log).toHaveLength(2);
+    expect(log[0]).toMatchObject({ method: 'POST', path: '/oauth_token.do', status: 400 });
+    expect(log[0]!.detail).toContain('invalid_scope');
+    expect(log[1]).toMatchObject({ status: 200, path: '/api/now/table/sys_user?sysparm_limit=1' });
+    expect(JSON.stringify(log)).not.toMatch(/leaked-token|s3cret|Basic abc/);
+  });
+
+  it('sends an OAuth scope only when one is configured', async () => {
+    const bodies: string[] = [];
+    const { fn } = fakeFetch((c) => { bodies.push(String(c.body)); return res(200, { access_token: 't', expires_in: 1800 }); });
+    await new ClientCredentialsProvider('https://x.service-now.com', 'cid', 'secret', fn).getToken();
+    await new ClientCredentialsProvider('https://x.service-now.com', 'cid', 'secret', fn, Date.now, 'useraccount').getToken();
+    expect(bodies[0]).not.toContain('scope=');
+    expect(bodies[1]).toContain('scope=useraccount');
   });
 
   it('never puts the secret in the error message', async () => {
@@ -212,7 +250,7 @@ describe('oauth password grant', () => {
     const sn = new FakeServiceNow([]);
     const p = new PasswordGrantProvider(sn.instanceUrl, { ...sn.creds, password: 'wrong-pw-xyz' }, sn.fetch);
     const err = await p.getToken().catch((e: Error) => e);
-    expect(String((err as Error).message)).toMatch(/refused the integration user/);
+    expect(String((err as Error).message)).toMatch(/refused the password grant.*ServiceNow said: invalid_grant: access_denied/);
     expect(String((err as Error).message)).not.toMatch(/wrong-pw-xyz|secret-1/);
   });
 });

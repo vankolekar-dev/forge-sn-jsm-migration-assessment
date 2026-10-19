@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { call, type ConnectionView, type Job } from './api';
+import { call, type ConnectionView, type Job, type Profile } from './api';
 
 const PHASES: Record<string, string> = { info: 'instance version', pulls: 'tables', aggregates: 'counts', fill: 'CMDB fill rates', done: 'analysis' };
 
@@ -34,7 +34,7 @@ function ConnectionForm({ view, onSaved }: { view: ConnectionView; onSaved: (v: 
   const c = view.connection;
   const [f, setF] = useState({
     instance: c?.instance ?? '', grant: c?.grant ?? 'client_credentials', clientId: c?.clientId ?? '', clientSecret: '',
-    username: c?.username ?? '', password: '', customer: c?.customer ?? '', usageDays: String(c?.usageDays ?? 365), requestsPerSecond: String(c?.requestsPerSecond ?? 4),
+    username: c?.username ?? '', password: '', scope: c?.scope ?? '', customer: c?.customer ?? '', usageDays: String(c?.usageDays ?? 365), requestsPerSecond: String(c?.requestsPerSecond ?? 4),
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -62,7 +62,8 @@ function ConnectionForm({ view, onSaved }: { view: ConnectionView; onSaved: (v: 
         <tr><th>Client secret</th><td><input className="input wide" type="password" value={f.clientSecret} onChange={set('clientSecret')} autoComplete="new-password" placeholder={view.hasClientSecret ? 'stored (leave blank to keep)' : ''} /></td></tr>
         {password && <tr><th>Integration user</th><td><input className="input wide" value={f.username} onChange={set('username')} autoComplete="off" /></td></tr>}
         {password && <tr><th>Password</th><td><input className="input wide" type="password" value={f.password} onChange={set('password')} autoComplete="new-password" placeholder={view.hasPassword ? 'stored (leave blank to keep)' : ''} /></td></tr>}
-        <tr><th>Customer</th><td><input className="input wide" value={f.customer} onChange={set('customer')} placeholder="Name shown on the blueprint" /></td></tr>
+        <tr><th>OAuth scope</th><td><input className="input" value={f.scope} onChange={set('scope')} placeholder="usually empty" /> <span className="muted">only if the integration restricts auth scopes, e.g. useraccount</span></td></tr>
+        <tr><th>Customer</th><td><input className="input wide" value={f.customer} onChange={set('customer')} placeholder="Name shown on the blueprint (defaults to the instance name)" /></td></tr>
         <tr><th>Usage window</th><td><input className="input" type="number" min={1} max={1095} value={f.usageDays} onChange={set('usageDays')} /> days of ticket volume</td></tr>
         <tr><th>Rate limit</th><td><input className="input" type="number" min={0.5} max={10} step={0.5} value={f.requestsPerSecond} onChange={set('requestsPerSecond')} /> requests per second</td></tr>
       </tbody></table>
@@ -70,7 +71,7 @@ function ConnectionForm({ view, onSaved }: { view: ConnectionView; onSaved: (v: 
       <div className="row end">
         {c && <button className="btn danger" disabled={busy} onClick={() => void run(() => call<ConnectionView>('removeConnection'))}>Remove connection</button>}
         <button className="btn primary" disabled={busy} onClick={() => void run(() => call<ConnectionView>('saveConnection', {
-          instance: f.instance, grant: f.grant, clientId: f.clientId.trim(), customer: f.customer,
+          instance: f.instance, grant: f.grant, clientId: f.clientId.trim(), ...(f.customer.trim() ? { customer: f.customer.trim() } : {}), ...(f.scope.trim() ? { scope: f.scope.trim() } : {}),
           usageDays: Number(f.usageDays) || 365, requestsPerSecond: Number(f.requestsPerSecond) || 4,
           ...(f.clientSecret ? { clientSecret: f.clientSecret } : {}),
           ...(password ? { username: f.username.trim(), ...(f.password ? { password: f.password } : {}) } : {}),
@@ -82,7 +83,7 @@ function ConnectionForm({ view, onSaved }: { view: ConnectionView; onSaved: (v: 
   );
 }
 
-function TestCard({ view, onTested }: { view: ConnectionView; onTested: () => Promise<void> }) {
+export function TestCard({ view, onTested, profile = 'oauth' }: { view: ConnectionView; onTested: () => Promise<void>; profile?: Profile }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const t = view.connection!.lastTest;
@@ -92,7 +93,7 @@ function TestCard({ view, onTested }: { view: ConnectionView; onTested: () => Pr
       <div className="row">
         <button className="btn" disabled={busy} onClick={async () => {
           setBusy(true); setError(undefined);
-          try { await call('testConnection'); await onTested(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+          try { await call('testConnection', { profile }); await onTested(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
         }}>{busy ? 'Testing…' : 'Test connection'}</button>
         {t && <span className={t.ok ? 'lozenge ok' : 'lozenge bad'}>{t.ok ? 'working' : 'failing'}</span>}
         {t && <span className="muted">{t.release ? `${t.release} · ` : ''}tested {new Date(t.at).toLocaleString()}</span>}
@@ -107,7 +108,7 @@ function TestCard({ view, onTested }: { view: ConnectionView; onTested: () => Pr
   );
 }
 
-function CollectCard({ view, onChanged, onBlueprint }: { view: ConnectionView; onChanged: () => Promise<void>; onBlueprint: (id: string) => Promise<void> }) {
+export function CollectCard({ view, onChanged, onBlueprint, profile = 'oauth' }: { view: ConnectionView; onChanged: () => Promise<void>; onBlueprint: (id: string) => Promise<void>; profile?: Profile }) {
   const [replace, setReplace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -124,7 +125,7 @@ function CollectCard({ view, onChanged, onBlueprint }: { view: ConnectionView; o
         Large instances take several steps; a failed collection resumes from its last checkpoint. The blueprint still needs sign-off before anything is built.
       </p>
       <div className="row">
-        <button className="btn primary" disabled={busy || Boolean(active)} onClick={() => void act('startCollection', { replace })}>Collect &amp; analyse</button>
+        <button className="btn primary" disabled={busy || Boolean(active)} onClick={() => void act('startCollection', { replace, profile })}>Collect &amp; analyse</button>
         <label className="row"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> replace a blueprint with the same id (its sign-off must be renewed)</label>
       </div>
       {error && <div className="error">{error}</div>}

@@ -4,9 +4,10 @@ import { call, uploadBlueprint, type Boot } from './api';
 import { BlueprintView } from './BlueprintView';
 import { SettingsView } from './SettingsView';
 import { ServiceNowView } from './ServiceNowView';
+import { DemoConnectionView } from './DemoConnectionView';
 import { BlueprintPicker, JsmBuildGaps, ServiceNowComponents } from './ComponentsView';
 
-type Page = 'blueprints' | 'sn-components' | 'jsm-gaps' | 'servicenow';
+type Page = 'blueprints' | 'sn-components' | 'jsm-gaps' | 'servicenow' | 'servicenow-demo';
 
 export function App() {
   const [boot, setBoot] = useState<Boot>();
@@ -58,6 +59,7 @@ export function App() {
               {page === 'sn-components' ? <ServiceNowComponents blueprintId={selected} /> : <JsmBuildGaps blueprintId={selected} />}
             </div>
           )}
+          {page === 'servicenow-demo' && boot.role === 'admin' && <DemoConnectionView onBlueprint={async (id) => { await reload(); setSelected(id); setPage('blueprints'); }} />}
           {page === 'servicenow' && boot.role === 'admin' && <ServiceNowView onBlueprint={async (id) => { await reload(); setSelected(id); setPage('blueprints'); }} />}
           {page === 'blueprints' && (
           <div className="layout">
@@ -90,6 +92,7 @@ const PAGES: [Page, string, boolean][] = [
   ['sn-components', 'ServiceNow components', false],
   ['jsm-gaps', 'JSM build & gaps', false],
   ['servicenow', 'Connect to ServiceNow', true],
+  ['servicenow-demo', 'ServiceNow demo (basic auth)', true],
 ];
 
 function Upload({ partChars, onDone }: { partChars: number; onDone: (id: string) => Promise<void> }) {

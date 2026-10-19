@@ -220,6 +220,7 @@ describe('ServiceNow connection', () => {
     await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { instance: 'evil.example.com' }))).rejects.toThrow(/service-now\.com/);
     await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { clientSecret: '' }))).rejects.toThrow(/client secret/);
     await expect(t.wb.saveConnection(t.as(t.admin), conn(t, { grant: 'password' }))).rejects.toThrow(/integration user name/);
+    expect((await t.wb.saveConnection(t.as(t.admin), conn(t, { customer: undefined }))).connection).toMatchObject({ customer: 'dev12345' });
     const saved = await t.wb.saveConnection(t.as(t.admin), conn(t));
     expect(saved).toMatchObject({ connection: { instance: t.sn.instanceUrl, usageDays: 365 }, hasClientSecret: true, hasPassword: false });
     expect(JSON.stringify(saved)).not.toContain(t.sn.creds.clientSecret);
@@ -333,5 +334,67 @@ describe('blueprint views', () => {
     expect((await t.wb.jsmGaps(t.as(t.signer), { blueprintId: id })).totals.elements).toBe(base.design.length);
     await expect(t.wb.inventory(t.as(t.outsider), { blueprintId: id })).rejects.toThrow(/do not have access/);
     await expect(t.wb.jsmGaps(t.as(t.admin), { blueprintId: 'nope' })).rejects.toThrow(/no blueprint/);
+  });
+});
+
+describe('ServiceNow demo connection (basic auth) and request log', () => {
+  const demo = (t: ReturnType<typeof setup>, extra: Record<string, unknown> = {}) => ({
+    profile: 'basic', instance: 'dev12345.service-now.com', username: t.sn.creds.username, password: t.sn.creds.password, ...extra,
+  });
+
+  it('is stored apart from the OAuth connection, and never returns or logs the password', async () => {
+    const t = setup();
+    await t.wb.saveConnection(t.as(t.admin), { instance: 'dev12345.service-now.com', grant: 'client_credentials', clientId: 'client-1', clientSecret: 'secret-1' });
+    await expect(t.wb.saveConnection(t.as(t.admin), demo(t, { password: undefined }))).rejects.toThrow(/password/);
+    await expect(t.wb.saveConnection(t.as(t.signer), demo(t))).rejects.toThrow(/only Jira administrators/);
+    const v = await t.wb.saveConnection(t.as(t.admin), demo(t));
+    expect(v).toMatchObject({ profile: 'basic', connection: { grant: 'basic', username: t.sn.creds.username, customer: 'dev12345' }, hasPassword: true });
+    expect((await t.wb.connection(t.as(t.admin))).connection).toMatchObject({ grant: 'client_credentials' });
+    // Same instance and user: the stored password is kept.
+    await t.wb.saveConnection(t.as(t.admin), demo(t, { password: undefined, usageDays: 30 }));
+    const tested = await t.wb.testConnection(t.as(t.admin), { profile: 'basic' });
+    expect(tested.checks.filter((x) => !x.ok)).toEqual([]);
+
+    const everything = JSON.stringify([...t.kv.data.values(), v, await t.wb.snLogs(t.as(t.admin), { profile: 'basic' })]);
+    expect(everything).not.toContain(t.sn.creds.password);
+    expect(everything).not.toContain(Buffer.from(`${t.sn.creds.username}:${t.sn.creds.password}`).toString('base64'));
+    await t.wb.removeConnection(t.as(t.admin), { profile: 'basic' });
+    expect((await t.wb.connection(t.as(t.admin), { profile: 'basic' })).connection).toBeNull();
+    expect((await t.wb.connection(t.as(t.admin))).connection).not.toBeNull();
+  });
+
+  it('logs each request and check, newest first, with ServiceNow\'s answer on failures', async () => {
+    const t = setup();
+    await t.wb.saveConnection(t.as(t.admin), demo(t, { password: 'wrong-pw' }));
+    const bad = await t.wb.testConnection(t.as(t.admin), { profile: 'basic' });
+    expect(bad.ok).toBe(false);
+    expect(bad.checks[0]).toMatchObject({ name: 'Sign in (basic auth)', ok: false });
+    expect(bad.checks[0]!.detail).toMatch(/user name or password \(401\)/);
+    const { entries } = await t.wb.snLogs(t.as(t.admin), { profile: 'basic' });
+    expect(entries[0]).toMatchObject({ kind: 'event', level: 'error', message: 'test failed' });
+    const http = entries.filter((e) => e.kind === 'http');
+    expect(http.length).toBeGreaterThan(0);
+    expect(http[0]).toMatchObject({ method: 'GET', status: 401 });
+    expect(http[0]!.kind === 'http' && http[0]!.detail).toMatch(/User Not Authenticated/);
+    expect(JSON.stringify(entries)).not.toContain('wrong-pw');
+    expect((await t.wb.snLogs(t.as(t.admin))).entries).toEqual([]); // the OAuth log is separate
+    await expect(t.wb.snLogs(t.as(t.signer), { profile: 'basic' })).rejects.toThrow(/only Jira administrators/);
+    expect((await t.wb.clearSnLogs(t.as(t.admin), { profile: 'basic' })).entries).toEqual([]);
+    expect((await t.wb.snLogs(t.as(t.admin), { profile: 'basic' })).entries).toEqual([]);
+  });
+
+  it('collects with basic auth into a blueprint, listing the job and a bounded log under the demo connection only', async () => {
+    const t = setup({ collectBudgetMs: 5000, fakeClock: true });
+    await t.wb.saveConnection(t.as(t.admin), demo(t, { usageDays: 30 }));
+    const job = await t.wb.startCollection(t.as(t.admin), { profile: 'basic' });
+    let last: Job | undefined;
+    while (t.queue.length) last = await t.drain();
+    expect(last).toMatchObject({ id: job.id, status: 'done', collect: { profile: 'basic' } });
+    expect((await t.wb.connection(t.as(t.admin), { profile: 'basic' })).jobs.map((j) => j.id)).toEqual([job.id]);
+    expect((await t.wb.connection(t.as(t.admin))).jobs).toEqual([]);
+    const { entries } = await t.wb.snLogs(t.as(t.admin), { profile: 'basic' });
+    expect(entries.length).toBeLessThanOrEqual(250);
+    expect(entries[0]).toMatchObject({ kind: 'event', message: expect.stringMatching(/done: blueprint .* from \d+ records/) });
+    expect(t.sn.requests.every((r) => r.method === 'GET')).toBe(true);
   });
 });

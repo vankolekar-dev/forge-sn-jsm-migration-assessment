@@ -49,3 +49,7 @@ progress { width: 100%; }
 .tile:disabled { opacity: 0.55; cursor: default; }
 .tile-n { font-size: 20px; font-weight: 700; }
 .stat { min-width: 110px; margin-right: 12px; }
+
+.log td { font-size: 12px; vertical-align: top; }
+.log code { word-break: break-all; }
+.log-error td { background: #ffeceb; }

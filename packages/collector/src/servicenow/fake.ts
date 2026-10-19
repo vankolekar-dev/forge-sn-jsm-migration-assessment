@@ -15,6 +15,8 @@ export class FakeServiceNow {
   /** Valid credentials; a grant succeeds only with these. */
   creds = { clientId: 'client-1', clientSecret: 'secret-1', username: 'svc.migration', password: 'pw-1' };
   allowClientCredentials = true;
+  /** Basic auth with the integration user's credentials (on by default, as on most instances). */
+  allowBasic = true;
 
   constructor(records: SnRecord[], opts: { host?: string; release?: string } = {}) {
     this.instanceUrl = `https://${opts.host ?? 'dev12345.service-now.com'}`;
@@ -44,7 +46,9 @@ export class FakeServiceNow {
     this.requests.push({ method: init.method, path: u.pathname });
     if (u.pathname === '/oauth_token.do' && init.method === 'POST') return this.token(new URLSearchParams(init.body ?? ''));
     if (init.method !== 'GET') return this.json(405, { error: { message: 'read-only fake' } });
-    if (!/^Bearer tok-\d+$/.test(init.headers.Authorization ?? '')) return this.json(401, { error: { message: 'User Not Authenticated' } });
+    const authz = init.headers.Authorization ?? '';
+    const basic = authz.startsWith('Basic ') && this.allowBasic && Buffer.from(authz.slice(6), 'base64').toString('utf8') === `${this.creds.username}:${this.creds.password}`;
+    if (!basic && !/^Bearer tok-\d+$/.test(authz)) return this.json(401, { error: { message: 'User Not Authenticated', detail: 'Required to provide Auth information' }, status: 'failure' });
     const table = decodeURIComponent(u.pathname.split('/').at(-1) ?? '');
     if (u.pathname.startsWith('/api/now/table/')) return this.table(table, u.searchParams);
     if (u.pathname.startsWith('/api/now/stats/')) return this.stats(table, u.searchParams);

@@ -76,6 +76,19 @@ never silently incomplete; **Resume** continues from there. A collection with no
 interrupted and can be resumed. The result is a blueprint like an upload: not signed off, and replacing an existing
 one requires the replace option.
 
+### Demo connection (basic auth)
+
+For demos and developer instances, the tab **ServiceNow demo (basic auth)** connects with a ServiceNow user name and
+password instead of OAuth. It is a separate connection (its own record, password in secret storage, collections),
+so the OAuth connection for customer instances stays as it is. The same read-only collection and analysis apply.
+**Sign in** passes on any answer but 401 (a 403 only means no read on that table).
+
+At the bottom of the tab, **Logs** shows the last 250 ServiceNow requests (method, path, status, time, and the start
+of ServiceNow's answer on failures) and workbench events (test checks, collection steps, warnings, the result),
+newest first, with an errors-only filter. Headers and request bodies are never recorded, and tokens in error
+answers are redacted. Logs are written at the end of a test, every 10 s during a collection step and when it ends.
+The OAuth connection keeps a log too (resolver `snLogs`), not shown in its tab.
+
 ## Jobs
 
 Dry-run, verify and apply run on a queue (`workbench-jobs`, 900 s limit), at most one at a time per blueprint. The

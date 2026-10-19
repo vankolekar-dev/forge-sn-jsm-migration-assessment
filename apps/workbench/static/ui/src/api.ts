@@ -31,11 +31,15 @@ export async function uploadBlueprint(text: string, fileName: string, partChars:
 }
 
 export interface Connection {
-  instance: string; grant: 'client_credentials' | 'password'; clientId: string; username?: string; customer: string; usageDays: number; requestsPerSecond: number;
+  instance: string; grant: 'client_credentials' | 'password' | 'basic'; clientId: string; username?: string; scope?: string; customer: string; usageDays: number; requestsPerSecond: number;
   updatedBy: string; updatedAt: string;
   lastTest?: { ok: boolean; at: string; release?: string; checks: { name: string; ok: boolean; detail: string }[] };
 }
-export interface ConnectionView { connection: Connection | null; hasClientSecret: boolean; hasPassword: boolean; nextBlueprintId: string | null; jobs: Job[] }
+export type Profile = 'oauth' | 'basic';
+export type LogEntry =
+  | { kind: 'http'; at: string; method: string; path: string; status?: number; ms: number; detail?: string; error?: string }
+  | { kind: 'event'; at: string; level: 'info' | 'error'; message: string };
+export interface ConnectionView { profile?: Profile; connection: Connection | null; hasClientSecret: boolean; hasPassword: boolean; nextBlueprintId: string | null; jobs: Job[] }
 
 // Blueprint views (mirror src/views.ts on the backend).
 export interface SnItem { id: string; kind: string; name: string; domain?: string; table?: string; intent?: string; custom?: boolean; active?: boolean; usage?: { count: number; periodDays?: number }; fillRate?: number; risk?: string }

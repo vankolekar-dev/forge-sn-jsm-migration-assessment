@@ -70,7 +70,7 @@ export class ServiceNowClient {
       const token = await this.opts.auth.getToken(false);
       const res = await this.http(`${this.instanceUrl}${path}`, {
         method: 'GET',
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        headers: { Accept: 'application/json', Authorization: `${this.opts.auth.scheme ?? 'Bearer'} ${token}` },
       });
       if (res.status === 401 && !refreshed) {
         refreshed = true;
@@ -83,7 +83,11 @@ export class ServiceNowClient {
         continue;
       }
       const raw = await res.text();
-      if (res.status === 401) throw new ServiceNowError('ServiceNow rejected the token (401).', 401);
+      if (res.status === 401) {
+        throw new ServiceNowError(this.opts.auth.scheme === 'Basic'
+          ? 'ServiceNow rejected the user name or password (401). Check them, that the user is active and not locked out, has no multi-factor login enforced, and that no REST API access policy blocks basic auth.'
+          : 'ServiceNow rejected the token (401).', 401);
+      }
       if (res.status === 403) throw new ServiceNowError(`No read access (403) for ${path.split('?')[0]}. Grant the integration user read on this table.`, 403);
       if (res.status < 200 || res.status >= 300) throw new ServiceNowError(`ServiceNow returned ${res.status} for ${path.split('?')[0]}: ${raw.slice(0, 300)}`, res.status);
       try {
