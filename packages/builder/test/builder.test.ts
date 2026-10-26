@@ -216,18 +216,31 @@ describe('apply on a fake sandbox', () => {
   it('records a confirmed element that differs from the design as the difference, not as its guided step again', async () => {
     const site = new FakeSite();
     const bp = signed(base);
-    const { state } = await build(site, bp);
+    const { dry, state } = await build(site, bp);
     // The person reused a schema made from the template, but with a different key than the design.
     const el = bp.design.find((d) => d.id === 'as.schema.itam') as Extract<Blueprint['design'][number], { type: 'assets-schema' }>;
+    const createTitle = dry.steps.find((s) => s.designId === el.id)!.manual!.title;
+    expect(createTitle).toMatch(/^Create Assets schema/);
     const template = getReferenceArtifact(bp.design.find((d) => d.id === 'as.ot.hardware-model')!.referenceId!)!.partOf!;
     const schema = site.createSchemaFromTemplate(template, el.spec.name, `ZZ${el.spec.key}`);
     confirmManual(bp, state, { designId: el.id, by: 'vish', remoteId: schema.id, remoteKey: schema.objectSchemaKey });
+    // As an older apply left it: the guided step's title recorded as pending work.
+    state.elements[el.id]!.manualPending = [createTitle];
     const p = await plan({ bp, state, api: site.client(true) });
     const step = p.steps.find((s) => s.designId === el.id)!;
-    expect(step).toMatchObject({ action: 'manual', manualAspects: [`set key to ${JSON.stringify(el.spec.key)}`] });
+    const setKey = `set key to ${JSON.stringify(el.spec.key)}`;
+    expect(step).toMatchObject({ action: 'manual', manualAspects: [setKey] });
+    // The guided step says "update it to match", never "create it" again.
+    expect(step.manual).toMatchObject({
+      title: `Update assets schema "${el.name}" (ZZ${el.spec.key}) to match the design`,
+      record: 'confirm', values: { key: el.spec.key }, checks: [`key is ${JSON.stringify(el.spec.key)}`],
+    });
+    expect(step.manual!.instructions[0]).toBe(`Change key from "ZZ${el.spec.key}" to ${JSON.stringify(el.spec.key)}.`);
+    expect(JSON.stringify(step.manual)).not.toContain('Create Assets schema');
+    expect(step.manual!.where).toBe(`The settings of assets schema ZZ${el.spec.key} on the site (not the create screen)`);
+    expect(renderPlan(p)).toContain(step.manual!.title);
     await apply({ bp, state, api: site.client(false), readApi: site.client(true), approvedPlanHash: p.planHash });
-    expect(state.elements[el.id]).toMatchObject({ status: 'manual-done', manualPending: [`set key to ${JSON.stringify(el.spec.key)}`] });
-    expect(state.elements[el.id]?.manualPending).not.toContain(step.manual!.title);
+    expect(state.elements[el.id]).toMatchObject({ status: 'manual-done', manualPending: [setKey] });
     const v = await verify(bp, state, site.client(true));
     expect(v.results.find((x) => x.designId === el.id)?.detail).toContain('set key to');
   });
