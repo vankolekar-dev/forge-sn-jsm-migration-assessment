@@ -190,6 +190,48 @@ describe('apply on a fake sandbox', () => {
     expect(site.attributes.find((a) => a.name === 'Manager')).toMatchObject({ type: 1 });
   });
 
+  it('lets a person correct a recorded site id (renamed or re-created in the UI) and builds with the new one', async () => {
+    const site = new FakeSite();
+    const bp = signed(base);
+    const { state } = await build(site, bp);
+    createTemplateSchema(site, bp, state);
+    // Recorded before a rename in the UI; afterwards the site has a new id.
+    confirmManual(bp, state, { designId: 'ref.reports-to', by: 'vish', remoteId: 'old-id' });
+    site.referenceTypes.push({ id: 'new-id', name: 'Reports to' });
+    const fixed = confirmManual(bp, state, { designId: 'ref.reports-to', by: 'vish', remoteId: 'new-id', note: 'renamed' });
+    expect(fixed).toMatchObject({ status: 'manual-done', remote: { id: 'new-id' }, note: 'renamed; replaces assets-reference-type old-id' });
+    expect(state.runs.at(-1)?.summary).toContain('site id old-id → new-id');
+    // The same id again keeps the recorded remote and adds no "replaces" note.
+    expect(confirmManual(bp, state, { designId: 'ref.reports-to', by: 'vish', remoteId: 'new-id' })).toMatchObject({ remote: { id: 'new-id' } });
+    expect(state.elements['ref.reports-to']?.note).toBe('renamed; replaces assets-reference-type old-id');
+    expect(state.runs.at(-1)?.summary).not.toContain('→');
+    const next = await plan({ bp, state, api: site.client(true) });
+    const manager = next.steps.find((s) => s.designId === 'as.attr.person-manager')!;
+    expect(manager.action).toBe('create');
+    expect(JSON.stringify(manager.requests)).toContain('new-id');
+    const r = await apply({ bp, state, api: site.client(false), readApi: site.client(true), approvedPlanHash: next.planHash });
+    expect(r.results.find((x) => x.designId === 'as.attr.person-manager')?.result).toBe('done');
+  });
+
+  it('records a confirmed element that differs from the design as the difference, not as its guided step again', async () => {
+    const site = new FakeSite();
+    const bp = signed(base);
+    const { state } = await build(site, bp);
+    // The person reused a schema made from the template, but with a different key than the design.
+    const el = bp.design.find((d) => d.id === 'as.schema.itam') as Extract<Blueprint['design'][number], { type: 'assets-schema' }>;
+    const template = getReferenceArtifact(bp.design.find((d) => d.id === 'as.ot.hardware-model')!.referenceId!)!.partOf!;
+    const schema = site.createSchemaFromTemplate(template, el.spec.name, `ZZ${el.spec.key}`);
+    confirmManual(bp, state, { designId: el.id, by: 'vish', remoteId: schema.id, remoteKey: schema.objectSchemaKey });
+    const p = await plan({ bp, state, api: site.client(true) });
+    const step = p.steps.find((s) => s.designId === el.id)!;
+    expect(step).toMatchObject({ action: 'manual', manualAspects: [`set key to ${JSON.stringify(el.spec.key)}`] });
+    await apply({ bp, state, api: site.client(false), readApi: site.client(true), approvedPlanHash: p.planHash });
+    expect(state.elements[el.id]).toMatchObject({ status: 'manual-done', manualPending: [`set key to ${JSON.stringify(el.spec.key)}`] });
+    expect(state.elements[el.id]?.manualPending).not.toContain(step.manual!.title);
+    const v = await verify(bp, state, site.client(true));
+    expect(v.results.find((x) => x.designId === el.id)?.detail).toContain('set key to');
+  });
+
   it('adds missing select options without removing existing ones', async () => {
     const site = new FakeSite();
     const bp = signed(clone(base));

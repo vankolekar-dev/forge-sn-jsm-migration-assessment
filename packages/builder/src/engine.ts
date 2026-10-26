@@ -282,7 +282,9 @@ export async function plan(input: PlanInput): Promise<Plan> {
     if (s.action === 'create' || s.action === 'blocked') s.requests = h.preview?.(ctx);
     if (s.action === 'manual' || ((s.action === 'create' || s.action === 'adopt') && pendingAspects.length)) {
       const manualAspects = s.action === 'manual' && !pendingAspects.length && !s.remote ? [] : pendingAspects;
-      s.manual = h.manual(ctx, s.changes?.some((c) => !c.fixable) ? [...manualAspects, ...s.changes.filter((c) => !c.fixable).map((c) => `set ${c.path} to ${JSON.stringify(c.want)}`)] : manualAspects);
+      const aspects = s.changes?.some((c) => !c.fixable) ? [...manualAspects, ...s.changes.filter((c) => !c.fixable).map((c) => `set ${c.path} to ${JSON.stringify(c.want)}`)] : manualAspects;
+      s.manual = h.manual(ctx, aspects);
+      if (s.remote) s.manualAspects = aspects;
     }
     steps.push(s);
     byId.set(el.id, s);
@@ -399,7 +401,9 @@ export async function apply(input: ApplyInput): Promise<ApplyResult> {
       if (s.action === 'blocked') { waiting.add(s.designId); results.push({ designId: s.designId, action: s.action, result: 'blocked', detail: s.reason }); if (s.manual) manual.push(s.manual); continue; }
       if (s.action === 'manual') {
         if (!s.remote) save(s.designId, { status: 'manual-pending' });
-        else save(s.designId, { status: state.elements[s.designId]?.status ?? 'adopted', remote: s.remote, manualPending: s.manual ? [s.manual.title] : [] });
+        // Record what is actually left to do (pending aspects, differences to fix by hand), not the step's title: a
+        // confirmed element that differs from the design must show the difference, not "create it" again.
+        else save(s.designId, { status: state.elements[s.designId]?.status ?? 'adopted', remote: s.remote, manualPending: s.manualAspects ?? (s.manual ? [s.manual.title] : []) });
         if (s.manual) manual.push(s.manual);
         if (!s.remote && s.manual?.record === 'remote-id') waiting.add(s.designId); // dependents wait for the id
         results.push({ designId: s.designId, action: s.action, result: 'manual', remote: s.remote, detail: s.reason });
@@ -471,15 +475,20 @@ export function confirmManual(bp: Blueprint, state: BuildState, c: ConfirmInput)
   const fakeCtx = makeCtx(READ_ONLY_API, bp, el, state, new Map(), new Map(), {});
   const needsId = !st?.remote && h.manual(fakeCtx, []).record === 'remote-id';
   if (needsId && !c.remoteId) throw new Error(`${c.designId}: record the site id of what was created (other elements need it)`);
-  const remote: Remote | undefined = st?.remote ?? (c.remoteId ? { kind: el.type, id: c.remoteId, ...(c.remoteKey ? { key: c.remoteKey } : {}), name: (el.spec as { name?: string }).name ?? el.name } : undefined);
+  // An id the person gives wins over one recorded earlier (e.g. the item was renamed or re-created in the UI and now has
+  // a new id); the same id keeps the recorded remote and its extra details.
+  const given: Remote | undefined = c.remoteId ? { kind: el.type, id: c.remoteId, ...(c.remoteKey ? { key: c.remoteKey } : {}), name: (el.spec as { name?: string }).name ?? el.name } : undefined;
+  const replaced = given && st?.remote && st.remote.id !== given.id ? st.remote : undefined;
+  const remote: Remote | undefined = given && (!st?.remote || replaced) ? given : st?.remote;
+  const note = [c.note, replaced ? `replaces ${replaced.kind} ${replaced.id}` : undefined].filter(Boolean).join('; ');
   const next: ElementState = {
     ...st, designId: el.id, type: el.type, specHash: specHashOf(el), at: new Date().toISOString(), by: c.by,
     status: st && st.status !== 'manual-pending' && st.status !== 'failed' ? st.status : 'manual-done', manualPending: [],
-    ...(remote ? { remote } : {}), ...(c.note ? { note: c.note } : {}),
+    ...(remote ? { remote } : {}), ...(note ? { note } : {}),
   };
   delete next.error;
   state.elements[el.id] = next;
-  state.runs.push({ id: `run-${state.runs.length + 1}`, op: 'confirm-manual', at: next.at, summary: `${el.id} confirmed by ${c.by}` });
+  state.runs.push({ id: `run-${state.runs.length + 1}`, op: 'confirm-manual', at: next.at, summary: `${el.id} confirmed by ${c.by}${replaced ? ` (site id ${replaced.id} → ${given!.id})` : ''}` });
   return next;
 }
 
