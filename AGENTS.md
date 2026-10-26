@@ -21,6 +21,21 @@ SEs, partners and customers use it.
 
 `Evidence (ServiceNow) → Outcome (platform-neutral, signed off) → Design (Atlassian) → Build → Verify`
 
+## Repo map
+
+- `packages/model`: shared zod contracts (Evidence, Outcome, Design, Blueprint).
+- `packages/reference`: Atlassian reference library, capability catalogue, API coverage matrix.
+- `packages/collector` → `packages/analyser`: read-only ServiceNow discovery → evidence → outcomes → Blueprint.
+- `packages/atlassian`: Atlassian Cloud REST client (retries, read-only mode, auth loaders).
+- `packages/builder`: plan / dry-run / apply / verify engine and state file.
+- `packages/acceptance`: acceptance-test planner and runner (test personas, tagged test data, cleanup ledger).
+- `packages/workflow`: the build workflow and **all safety gates**, storage-agnostic (no `node:` imports).
+- `packages/mcp-server`: stdio MCP server and `npm run jsm` CLI over the workflow, with a file store.
+- `apps/workbench`: Forge app for Jira over the same workflow, with a Forge KVS store and a Custom UI.
+- `packages/tools`: reference capture / compare and API coverage spike against a real site.
+- `.rovo/skills/sn-jsm-outcome-migration`: the orchestrating Rovo skill. `packages/mcp-server/test/skill.test.ts`
+  keeps it in step with the real tools, commands and gate phrases.
+
 ## Engineering rules
 
 - Shared contracts live in `packages/model` (zod). Every package and tool reads and writes these types only.
@@ -32,10 +47,16 @@ SEs, partners and customers use it.
   by looking the element up again, never by re-sending it.
 - Builds are declarative and idempotent (plan → dry-run → apply → verify). An LLM never calls Atlassian or
   ServiceNow APIs directly. It calls the deterministic tools exposed by the MCP server.
-- Build safety gates live in `packages/mcp-server/src/service.ts`, never in prompts. When orchestrating:
-  1. Show the dry-run to the person.
-  2. Call `build_apply` only with the `APPLY <planHash> TO <site>` phrase the person typed.
+- Build safety gates live in `packages/workflow/src/service.ts`, never in prompts. The MCP server, CLI and Forge
+  workbench all use them; don't copy gate logic into an adapter. Keep `packages/workflow` free of `node:` imports so
+  it runs on Forge, and do file or KVS access through a `Store`. When orchestrating:
+  1. Show the sign-off review, dry-run or acceptance plan to the person.
+  2. Pass only a phrase the person typed, never one you composed:
+     `SIGN OFF <signHash> FOR <blueprintId>` (`signoff_record`), `APPLY <planHash> TO <site>` (`build_apply`),
+     `TEST <runHash> ON <site>` (`acceptance_run`), `CLEANUP <runId> ON <site>` (`acceptance_cleanup`).
   3. Call `build_confirm_manual` only after the person says they finished the guided step.
+- When you add, rename or remove an MCP tool, CLI command or gate phrase, update the Rovo skill (`skill.test.ts`
+  fails otherwise) and the README in the same change.
 - ServiceNow access is read-only (dedicated integration user + OAuth). Collect metadata and aggregate counts,
   not records, unless the user explicitly opts in.
 - Never commit secrets, customer snapshots, exports or reports. Test fixtures must be synthetic.
