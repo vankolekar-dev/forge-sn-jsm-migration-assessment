@@ -87,34 +87,35 @@
   <text x="1218" y="300" class="s">unknowns, next steps)</text>
 
   <!-- Workbench -->
-  <rect x="1200" y="350" width="360" height="115" rx="10" class="next"/>
-  <text x="1218" y="378" class="t">Workbench (Forge, Jira global page)</text>
-  <text x="1218" y="403" class="s">Outcome workshop: confirm / change /</text>
-  <text x="1218" y="423" class="s">reject outcomes &amp; parameters → sign-off</text>
-  <text x="1218" y="447" class="lbl">later</text>
+  <rect x="1200" y="350" width="360" height="115" rx="10" class="built"/>
+  <text x="1218" y="378" class="t">workbench (Forge app for Jira)</text>
+  <text x="1218" y="403" class="s">Collect + analyse from SN · sign-off ·</text>
+  <text x="1218" y="423" class="s">queued dry-run / apply / verify · guided steps</text>
+  <text x="1218" y="447" class="lbl">deployed to one-atlas-vish · first UI test pending</text>
 
   <path d="M290,272 h38" class="ln" marker-end="url(#a)"/>
   <path d="M560,330 h38" class="ln" marker-end="url(#a)"/>
   <path d="M1160,245 h38" class="ln" marker-end="url(#a)"/>
-  <path d="M1380,325 v23" class="lg" marker-end="url(#g)"/>
+  <path d="M1380,325 v23" class="ln" marker-end="url(#a)"/>
 
   <!-- Build row -->
-  <rect x="40" y="660" width="330" height="190" rx="10" class="next"/>
+  <rect x="40" y="660" width="330" height="190" rx="10" class="built"/>
   <text x="58" y="688" class="t">Rovo CLI orchestration</text>
-  <text x="58" y="713" class="s">New Rovo skills (repo .rovo/skills)</text>
+  <text x="58" y="713" class="s">Rovo skill sn-jsm-outcome-migration</text>
   <text x="58" y="733" class="s">One Jira epic per capability</text>
-  <text x="58" y="753" class="s">Plans, explains, asks approval</text>
+  <text x="58" y="753" class="s">Stops at every gate for a typed phrase</text>
   <text x="58" y="773" class="s">LLM never calls APIs directly</text>
-  <text x="58" y="835" class="lbl">next</text>
+  <text x="58" y="835" class="lbl">built · skill.test keeps it in step with the tools</text>
 
-  <rect x="420" y="660" width="380" height="190" rx="10" class="next"/>
-  <text x="438" y="688" class="t">builder engine + MCP server</text>
+  <rect x="420" y="660" width="380" height="190" rx="10" class="built"/>
+  <text x="438" y="688" class="t">builder + workflow + MCP server</text>
   <text x="438" y="713" class="s">Deterministic, declarative, idempotent</text>
   <text x="438" y="733" class="s">plan → dry-run → apply → verify</text>
   <text x="438" y="753" class="s">State file (what exists, drift)</text>
   <text x="438" y="773" class="s">Dependency-ordered; CMDB in multi-pass</text>
   <text x="438" y="793" class="s">Guided manual steps for API gaps</text>
-  <text x="438" y="835" class="lbl">next</text>
+  <text x="438" y="813" class="s">workflow: all gates, shared by MCP · CLI · Forge</text>
+  <text x="438" y="835" class="lbl">built · sandbox verified: 14 ok, 0 drift, 0 missing</text>
 
   <rect x="850" y="660" width="330" height="190" rx="10" class="tgt"/>
   <text x="868" y="688" class="t">Atlassian target (sandbox first)</text>
@@ -122,29 +123,29 @@
   <text x="868" y="733" class="s">Assets (reference schemas)</text>
   <text x="868" y="753" class="s">Jira · Confluence (knowledge)</text>
   <text x="868" y="777" class="s">JSM instance only, no data migration</text>
-  <text x="868" y="835" class="lbl">vish-se-demo (Premium) for testing</text>
+  <text x="868" y="835" class="lbl">sandbox: one-atlas-vish</text>
 
-  <rect x="1230" y="660" width="330" height="190" rx="10" class="next"/>
-  <text x="1248" y="688" class="t">Verify</text>
+  <rect x="1230" y="660" width="330" height="190" rx="10" class="built"/>
+  <text x="1248" y="688" class="t">acceptance (verify)</text>
   <text x="1248" y="713" class="s">Run each outcome's acceptance tests</text>
   <text x="1248" y="733" class="s">(given / when / then) in the sandbox</text>
   <text x="1248" y="753" class="s">API checks + guided manual checks</text>
   <text x="1248" y="777" class="s">Report outcome parity → go-live</text>
-  <text x="1248" y="835" class="lbl">next</text>
+  <text x="1248" y="835" class="lbl">built · first live run pending</text>
 
-  <path d="M1380,465 V632 H610 V658" class="lg" marker-end="url(#g)"/>
+  <path d="M1380,465 V632 H610 V658" class="ln" marker-end="url(#a)"/>
   <text x="1190" y="625" class="lbl">signed-off blueprint → build plan</text>
-  <path d="M370,755 h48" class="lg" marker-end="url(#g)"/>
+  <path d="M370,755 h48" class="ln" marker-end="url(#a)"/>
   <text x="378" y="745" class="lbl">MCP</text>
-  <path d="M800,755 h48" class="lg" marker-end="url(#g)"/>
-  <path d="M1180,755 h48" class="lg" marker-end="url(#g)"/>
-  <path d="M1395,850 v40 H205 V852" class="lg" marker-end="url(#g)"/>
+  <path d="M800,755 h48" class="ln" marker-end="url(#a)"/>
+  <path d="M1180,755 h48" class="ln" marker-end="url(#a)"/>
+  <path d="M1395,850 v40 H205 V852" class="ln" marker-end="url(#a)"/>
   <text x="640" y="910" class="lbl">verification results feed back into the plan and the Jira epic per capability</text>
 
   <!-- Legend -->
   <g transform="translate(40,945)">
-    <rect width="26" height="18" rx="3" class="built"/><text x="34" y="14" class="s">Built today</text>
-    <rect x="150" width="26" height="18" rx="3" class="next"/><text x="184" y="14" class="s">Next / planned</text>
+    <rect width="26" height="18" rx="3" class="built"/><text x="34" y="14" class="s">Built</text>
+    <rect x="150" width="26" height="18" rx="3" class="next"/><text x="184" y="14" class="s">Planned</text>
     <rect x="320" width="26" height="18" rx="3" class="ref"/><text x="354" y="14" class="s">Reference library (seeded, to verify)</text>
     <rect x="610" width="26" height="18" rx="3" class="src"/><text x="644" y="14" class="s">Source (evidence)</text>
     <rect x="790" width="26" height="18" rx="3" class="tgt"/><text x="824" y="14" class="s">Target platform</text>

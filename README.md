@@ -19,11 +19,13 @@ Evidence (ServiceNow) → Outcome (platform-neutral, signed off) → Design (Atl
 | `packages/reference` | Versioned Atlassian reference library, capability catalogue and API coverage matrix (data + validation) | ✅ Seeded (ITSM, Request hardware) |
 | `packages/collector` | Read-only ServiceNow discovery: XML/update-set parser, OAuth client-credentials, Table API keyset paging, Aggregate API counts, Snapshot (XML or live: records + server-side aggregates; CMDB metadata and counts only) | ✅ Built; live run pending OAuth fix |
 | `packages/analyser` | Snapshot → evidence (all domains, script static analysis, duplicates) → 15 area assessments incl. CMDB → Assets rationalisation → practice & capability detection → parameter resolution → outcomes + acceptance tests → configured reference design → fit/gap, buildability, complexity score → Blueprint + Markdown report | ✅ Built; needs a real estate to tune |
-| `packages/tools` | Reference capture / compare against a real site, API coverage spike | ✅ Built; needs a valid Atlassian token |
-| `packages/builder` | Deterministic, declarative build engine: Blueprint design → plan / dry-run / apply / verify, a handler per element type (adopt template parts, create via API, guided steps for API gaps), state file, Jira work breakdown, in-memory fake site | ✅ Built; API contract unverified until write probes run in a sandbox |
+| `packages/tools` | Reference capture / compare against a real site, API coverage spike | ✅ Built; templates captured from one-atlas-vish |
+| `packages/atlassian` | Atlassian Cloud REST client (Jira, JSM, Assets): retries that never duplicate a create, read-only mode, pluggable auth; Node helpers load site and test-persona credentials from env or the macOS Keychain | ✅ Built |
+| `packages/builder` | Deterministic, declarative build engine: Blueprint design → plan / dry-run / apply / verify, a handler per element type (adopt template parts, create via API, guided steps for API gaps), state file, Jira work breakdown, in-memory fake site | ✅ Built; first sandbox build verified on one-atlas-vish (14 ok, 0 drift, 0 missing) |
+| `packages/acceptance` | Outcome acceptance-test runner: turns signed-off given/when/then criteria into checks (ready / blocked / manual / excluded), runs them as test personas with tagged test data, records evidence per step, cleans up from a ledger | ✅ Built; first live run pending |
 | `packages/workflow` | Storage-agnostic build workflow shared by the MCP server, CLI and Forge workbench: sign-off, dry-run, gated apply, guided steps, verify, acceptance. All safety gates live here; reads and writes only through a `Store` (no `node:` imports) | ✅ Built |
 | `packages/mcp-server` | stdio MCP server + `npm run jsm` CLI over the workflow, with a file `Store` under the work directory (path containment, atomic writes, lock files) | ✅ Built |
-| `apps/workbench` | Forge app for Jira on the same workflow: upload a blueprint or collect + analyse from ServiceNow over OAuth (read-only, resumable), sign-off, dry-run / gated apply / verify as queued jobs, guided steps, acceptance plan; roles checked server-side, builds only on an admin-designated sandbox (see `apps/workbench/README.md`) | 🟡 Deployed to production (one-atlas-vish); first UI test pending |
+| `apps/workbench` | Forge app for Jira on the same workflow: upload a blueprint or collect + analyse from ServiceNow over OAuth (read-only, resumable), sign-off, dry-run / gated apply / verify as queued jobs, guided steps, acceptance plan; roles checked server-side, builds only on an admin-designated sandbox (see `apps/workbench/README.md`) | 🟡 Deployed to production (one-atlas-vish); first UI test pending. `forge lint` reports that the next deploy is a major version (egress change), so site admins must approve the upgrade |
 
 ## Reference library rules
 
@@ -96,6 +98,8 @@ when no API exists. The engine is additive and never deletes.
 ```bash
 npm run jsm -- summary   --blueprint acme/blueprint.json
 npm run jsm -- space     --blueprint acme/blueprint.json --mode existing --key ITS        # or --mode new [--name …] [--key …]
+npm run jsm -- review    --blueprint acme/blueprint.json                     # offline sign-off review → signHash
+npm run jsm -- sign-off  --blueprint acme/blueprint.json --hash <signHash>   # [--reject id] [--defer id] [--reinstate id] [--comment …]
 npm run jsm -- plan      --blueprint acme/blueprint.json                     # offline, nothing read
 npm run jsm -- dry-run   --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # read-only
 SNJSM_WRITE_SITES=acme-sandbox.atlassian.net \
@@ -104,9 +108,18 @@ npm run jsm -- manual    --blueprint acme/blueprint.json --site acme-sandbox.atl
 npm run jsm -- confirm   --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --id ref.reports-to --remote-id 42
 npm run jsm -- verify    --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # read-only
 npm run jsm -- status | breakdown …                                          # state; one Jira epic per capability
+npm run jsm -- test-plan --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # offline acceptance plan → runHash
+npm run jsm -- test      --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --hash <runHash>   # [--keep]
+npm run jsm -- test-cleanup --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --run <runId>
 ```
 
-Plans go to `out/plans/`, state to `out/state/<blueprintId>@<site>.json`, and run reports to `out/runs/`.
+`sign-off`, `apply`, `test` and `test-cleanup` ask for their phrase in a terminal, or take it with `--confirm "…"`.
+Plans go to `out/plans/`, state to `out/state/<blueprintId>@<site>.json`, run reports to `out/runs/`, sign-off
+reviews to `out/signoff/` and acceptance plans to `out/tests/`.
+
+**Guided steps carry forward.** Re-analysing produces a new blueprint and a new state file. A guided step a person
+already confirmed is carried forward only for the same site, the same element and an identical spec. The dry-run
+shows it, and it is part of the plan hash.
 
 **Target space.** Each space in the design is either `new` (created from the template) or `existing` (built into
 the space with that key; nothing is re-created). The dry-run checks the choice against the site:
@@ -132,7 +145,8 @@ there it is recorded, otherwise the step fails with "probably not created — ru
 
 Other protections: the state file is pinned to one blueprint and one site, locked while apply, confirm or verify
 is running, and written after every step. Credentials come from `ATL_EMAIL` / `ATL_API_TOKEN`, or from the Keychain
-items `atl-<site>-email` / `atl-<site>-api-token`.
+items `atl-<site>-email` / `atl-<site>-api-token`. Acceptance-test personas use `ATL_PERSONA_<NAME>_EMAIL` /
+`_API_TOKEN`, or the Keychain items `atl-<site>-persona-<name>-email` / `-api-token`.
 
 ### Use from Rovo CLI (MCP)
 
