@@ -77,6 +77,12 @@ export interface PlanStep {
   changes?: Change[];
   requests?: RequestPreview[];
   manual?: ManualStep;
+  /**
+   * What is still to do by hand on an element that already exists: pending guided aspects plus design differences the
+   * API cannot fix. Apply records this as the element's `manualPending`, so state and verify show the real work, not the
+   * guided step's title. Not part of the plan hash.
+   */
+  manualAspects?: string[];
   /** Values the dry-run resolved from the site (e.g. a free space key); part of the plan hash. */
   resolved?: Record<string, string>;
 }
