@@ -281,9 +281,13 @@ export async function plan(input: PlanInput): Promise<Plan> {
     }
     if (s.action === 'create' || s.action === 'blocked') s.requests = h.preview?.(ctx);
     if (s.action === 'manual' || ((s.action === 'create' || s.action === 'adopt') && pendingAspects.length)) {
-      const manualAspects = s.action === 'manual' && !pendingAspects.length && !s.remote ? [] : pendingAspects;
-      const aspects = s.changes?.some((c) => !c.fixable) ? [...manualAspects, ...s.changes.filter((c) => !c.fixable).map((c) => `set ${c.path} to ${JSON.stringify(c.want)}`)] : manualAspects;
-      s.manual = h.manual(ctx, aspects);
+      const buildTitle = h.manual(ctx, []).title;
+      // Older applies recorded the guided step's title as pending work; drop it so it heals on the next apply.
+      const manualAspects = (s.action === 'manual' && !pendingAspects.length && !s.remote ? [] : pendingAspects).filter((a) => a !== buildTitle);
+      const diffs = (s.changes ?? []).filter((c) => !c.fixable);
+      const aspects = [...manualAspects, ...diffs.map((c) => `set ${c.path} to ${JSON.stringify(c.want)}`)];
+      // Exists but differs in ways the API cannot fix: the step is "update it", never the "create it" step again.
+      s.manual = s.remote && diffs.length ? differsStep(h.manual(ctx, manualAspects), el, s.remote, diffs, manualAspects) : h.manual(ctx, aspects);
       if (s.remote) s.manualAspects = aspects;
     }
     steps.push(s);
@@ -295,6 +299,26 @@ export async function plan(input: PlanInput): Promise<Plan> {
   return {
     blueprintId: bp.id, ...(live ? { site: api.siteUrl } : {}), mode: live ? 'dry-run' : 'offline', createdAt: input.now ?? new Date().toISOString(),
     scope, steps, planHash: planHashOf(steps, carried), summary, warnings, ...(carried.length ? { carried } : {}),
+  };
+}
+
+/** Guided step for an element that is on the site but differs from the design in ways the API cannot change. */
+function differsStep(base: ManualStep, el: DesignElement, remote: Remote, diffs: Change[], pending: string[]): ManualStep {
+  const kind = el.type.replace(/-/g, ' ');
+  const on = remote.key ?? remote.id;
+  return {
+    ...base,
+    title: `Update ${kind} "${el.name}" (${on}) to match the design`,
+    why: `It is on the site but differs from the design (${diffs.map((c) => c.path).join(', ')}), and the API cannot change that`,
+    where: `The settings of ${kind} ${on} on the site (not the create screen)`,
+    instructions: [
+      ...diffs.map((c) => `Change ${c.path} from ${JSON.stringify(c.have)} to ${JSON.stringify(c.want)}.`),
+      ...pending.map((a) => `Also: ${a}.`),
+      'Do not create it again. If the difference is intended, change the design instead and run the dry-run again.',
+    ],
+    values: Object.fromEntries(diffs.map((c) => [c.path, c.want])),
+    checks: diffs.map((c) => `${c.path} is ${JSON.stringify(c.want)}`),
+    record: 'confirm',
   };
 }
 
