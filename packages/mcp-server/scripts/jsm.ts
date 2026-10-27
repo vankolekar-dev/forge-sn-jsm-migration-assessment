@@ -12,6 +12,7 @@
  *   npm run jsm -- verify    --blueprint … --site …
  *   npm run jsm -- status    --blueprint … --site …
  *   npm run jsm -- breakdown --blueprint … [--site …]
+ *   npm run jsm -- handoff --blueprint … [--site …] [--for agent|solution-composer]   brief for Rovo CLI / Claude / OpenAI, or prompts for Solution Composer
  *   npm run jsm -- build-list --blueprint … [--group automation] [--custom] [--inactive] [--per-group 25]   proposed JSM answer for everything else in ServiceNow (not reviewed)
  *   npm run jsm -- test-plan --blueprint … --site … [--outcome id]                    offline acceptance-test plan
  *   npm run jsm -- test      --blueprint … --site … --hash <runHash> [--keep] [--confirm "TEST <hash> ON <site>"]
@@ -24,7 +25,6 @@
 import { createInterface } from 'node:readline/promises';
 import { AtlassianClient } from '@snjsm/atlassian';
 import { loadPersonaAuth, loadSiteAuth } from '@snjsm/atlassian/node';
-import { buildList, buildListMarkdown } from '@snjsm/reference';
 import { BuildService, cleanupPhrase, configFromEnv, confirmPhrase, signOffPhrase, testPhrase, type BlueprintInput } from '@snjsm/mcp-server';
 
 function args(argv: string[]) {
@@ -116,12 +116,13 @@ async function main() {
     case 'verify': out = await svc.verify(base); break;
     case 'status': out = await svc.status(base); break;
     case 'breakdown': out = await svc.workBreakdown(base); break;
-    case 'build-list': {
-      const bp = await svc.loadBlueprint(blueprint);
-      const per = Number(a.one('per-group') ?? 25);
-      if (!Number.isInteger(per) || per < 0 || per > 500) throw new Error('--per-group must be a whole number from 0 to 500');
-      const o = { ...(a.has('inactive') ? { includeInactive: true } : {}), ...(a.one('group') ? { group: a.one('group')! } : {}), ...(a.has('custom') ? { customOnly: true } : {}), perGroup: per };
-      out = { ...buildList(bp, o), markdown: buildListMarkdown(bp, o) };
+    case 'build-list':
+      out = await svc.buildList({ blueprint, ...(a.one('group') ? { group: a.one('group')! } : {}), ...(a.has('custom') ? { customOnly: true } : {}), ...(a.has('inactive') ? { includeInactive: true } : {}), ...(a.one('per-group') !== undefined ? { perGroup: Number(a.one('per-group')) } : {}) });
+      break;
+    case 'handoff': {
+      const audience = a.one('for') ?? 'agent';
+      if (audience !== 'agent' && audience !== 'solution-composer') throw new Error('--for must be agent or solution-composer');
+      out = await svc.handoff({ ...base, audience });
       break;
     }
     case 'test-plan': out = await svc.acceptancePlan({ blueprint, ...(site ? { site } : {}), outcomeIds: a.many('outcome') }); break;
@@ -147,7 +148,7 @@ async function main() {
 }
 
 function readHelp() {
-  return 'usage: npm run jsm -- <summary|space|review|sign-off|plan|dry-run|apply|manual|confirm|verify|status|breakdown|build-list|test-plan|test|test-cleanup> --blueprint <path> [--site <site>] [--cap <id>] [--el <id>] [--json]';
+  return 'usage: npm run jsm -- <summary|space|review|sign-off|plan|dry-run|apply|manual|confirm|verify|status|breakdown|build-list|handoff|test-plan|test|test-cleanup> --blueprint <path> [--site <site>] [--cap <id>] [--el <id>] [--json]';
 }
 
 main().catch((e) => { console.error(`error: ${(e as Error).message}`); process.exit(1); });

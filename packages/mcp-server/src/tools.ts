@@ -98,6 +98,26 @@ export function registerTools(server: McpServer, svc: BuildService): void {
     inputSchema: { blueprint, site, ...scope }, annotations: ro,
   }, run((a) => svc.verify(a)));
 
+  server.registerTool('build_list', {
+    title: 'Build list for everything ServiceNow has',
+    description: 'Proposed, not reviewed: a first-pass JSM answer for every ServiceNow component no capability, outcome, gap or design element covers yet, grouped by the JSM element it would become, with readiness from the API coverage matrix (api, partial, unknown, ui-only, outside-builder, no-equivalent, not-needed) and redesign flags for script logic. Use it to discuss scope with the person. Never build from it and never present it as signed off: to bring an item in, propose a new outcome or capability.',
+    inputSchema: {
+      blueprint,
+      group: z.string().optional().describe('Only this group: a design element type (e.g. "automation", "request-type") or "outside-builder", "no-equivalent", "not-needed"'),
+      customOnly: z.boolean().optional().describe('Only customer-built components'),
+      includeInactive: z.boolean().optional().describe('Include components ServiceNow marks inactive'),
+      perGroup: z.number().int().min(0).max(500).optional().describe('Items listed per group in the markdown (default 25)'),
+    },
+    annotations: { readOnlyHint: true },
+  }, run((a) => svc.buildList(a)));
+
+  server.registerTool('blueprint_handoff', {
+    title: 'Handoff brief',
+    description: 'Read-only. audience "agent": a brief for an AI agent with these tools (Rovo CLI, Claude, OpenAI Codex): where things stand, the next gated steps, ground rules and how to connect this server. audience "solution-composer": plain-language prompts, one per capability, describing the in-scope design for a person to paste into Solution Composer in JSM (it has no API). Neither includes the unreviewed build list as instructions.',
+    inputSchema: { blueprint, site, audience: z.enum(['agent', 'solution-composer']).describe('Who the brief is for') },
+    annotations: { readOnlyHint: true },
+  }, run((a) => svc.handoff(a)));
+
   server.registerTool('build_status', {
     title: 'Build status',
     description: 'Show the state file for a blueprint on a site: what is built, failed or pending, and the last runs.',

@@ -260,7 +260,16 @@ describe('MCP protocol', () => {
     const client = new Client({ name: 'test', version: '0' });
     await client.connect(b);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(['acceptance_cleanup', 'acceptance_plan', 'acceptance_run', 'blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown', 'signoff_record', 'signoff_review']);
+    expect(tools.map((t) => t.name).sort()).toEqual(['acceptance_cleanup', 'acceptance_plan', 'acceptance_run', 'blueprint_handoff', 'blueprint_set_space', 'blueprint_summary', 'build_apply', 'build_confirm_manual', 'build_list', 'build_manual_steps', 'build_plan', 'build_status', 'build_verify', 'build_work_breakdown', 'signoff_record', 'signoff_review']);
+    for (const n of ['build_list', 'blueprint_handoff']) expect(tools.find((t) => t.name === n)?.annotations?.readOnlyHint).toBe(true);
+    const bl = await client.callTool({ name: 'build_list', arguments: { blueprint, group: 'sla', perGroup: 2 } });
+    expect(bl.isError, JSON.stringify(bl.content).slice(0, 300)).toBeFalsy();
+    const blc = bl.content as { text: string }[];
+    expect(JSON.parse(blc[0]!.text)).toMatchObject({ status: 'proposed, not reviewed' });
+    expect(blc[1]!.text).toContain('## SLAs');
+    const ho = await client.callTool({ name: 'blueprint_handoff', arguments: { blueprint, audience: 'solution-composer' } });
+    expect((ho.content as { text: string }[])[1]!.text).toContain('# Solution Composer prompts');
+    expect((await client.callTool({ name: 'blueprint_handoff', arguments: { blueprint, audience: 'everyone' } })).isError).toBe(true);
     expect(tools.find((t) => t.name === 'build_plan')?.annotations?.readOnlyHint).toBe(true);
 
     const s = await client.callTool({ name: 'blueprint_summary', arguments: { blueprint } });

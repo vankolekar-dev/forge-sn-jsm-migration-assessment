@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist", "lib": ["ES2022", "DOM"], "types": [] },
   "include": ["src"],
-  "references": [{ "path": "../acceptance" }, { "path": "../atlassian" }, { "path": "../builder" }, { "path": "../model" }]
+  "references": [{ "path": "../acceptance" }, { "path": "../atlassian" }, { "path": "../builder" }, { "path": "../model" }, { "path": "../reference" }]
 }

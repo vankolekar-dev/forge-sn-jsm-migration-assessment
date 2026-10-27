@@ -7,7 +7,7 @@ import { analyse } from '@snjsm/analyser';
 import type { Blueprint } from '@snjsm/model';
 import { getReferenceArtifact } from '@snjsm/reference';
 import {
-  FakeSite, apply, confirmManual, hashOf, newState, plan, readState, renderApply, renderPlan, renderVerify, scopeElements,
+  FakeSite, apply, confirmManual, hashOf, healAspect, newState, plan, readState, renderApply, renderPlan, renderVerify, scopeElements,
   stableStringify, strategyOf, verify, withLock, workBreakdown, writeState,
 } from '@snjsm/builder';
 
@@ -243,6 +243,28 @@ describe('apply on a fake sandbox', () => {
     expect(state.elements[el.id]).toMatchObject({ status: 'manual-done', manualPending: [setKey] });
     const v = await verify(bp, state, site.client(true));
     expect(v.results.find((x) => x.designId === el.id)?.detail).toContain('set key to');
+  });
+
+  it('heals pending work that older applies recorded with the step title in front, however often repeated', async () => {
+    expect(healAspect('Workflow "W": Workflow "W": approval steps', 'Workflow "W"')).toBe('approval steps');
+    expect(healAspect('Workflow "W"', 'Workflow "W"')).toBe('');
+    expect(healAspect('approval steps', 'Workflow "W"')).toBe('approval steps');
+    expect(healAspect('Workflow "Other": x', 'Workflow "W"')).toBe('Workflow "Other": x');
+
+    const site = new FakeSite();
+    const bp = signed(base);
+    const { state } = await build(site, bp);
+    const id = 'wf.service-request-approvals';
+    expect(state.elements[id]!.manualPending).toEqual(['approval steps']);
+    const title = (await plan({ bp, state, api: site.client(true) })).steps.find((s) => s.designId === id)!.manual!.title;
+    const prefix = title.slice(0, title.indexOf(': '));
+    state.elements[id]!.manualPending = [`${prefix}: ${prefix}: ${prefix}: approval steps`];
+    const p = await plan({ bp, state, api: site.client(true) });
+    const step = p.steps.find((s) => s.designId === id)!;
+    expect(step.manualAspects).toEqual(['approval steps']);
+    expect(step.manual!.title).toBe(title);
+    await apply({ bp, state, api: site.client(false), readApi: site.client(true), approvedPlanHash: p.planHash });
+    expect(state.elements[id]!.manualPending).toEqual(['approval steps']);
   });
 
   it('adds missing select options without removing existing ones', async () => {

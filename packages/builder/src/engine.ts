@@ -282,8 +282,10 @@ export async function plan(input: PlanInput): Promise<Plan> {
     if (s.action === 'create' || s.action === 'blocked') s.requests = h.preview?.(ctx);
     if (s.action === 'manual' || ((s.action === 'create' || s.action === 'adopt') && pendingAspects.length)) {
       const buildTitle = h.manual(ctx, []).title;
-      // Older applies recorded the guided step's title as pending work; drop it so it heals on the next apply.
-      const manualAspects = (s.action === 'manual' && !pendingAspects.length && !s.remote ? [] : pendingAspects).filter((a) => a !== buildTitle);
+      // Older applies recorded the guided step's title as pending work, and later plans prefixed it again
+      // ('Workflow "X": Workflow "X": approval steps'); keep only the aspect so it heals on the next apply.
+      const manualAspects = (s.action === 'manual' && !pendingAspects.length && !s.remote ? [] : pendingAspects)
+        .map((a) => healAspect(a, buildTitle)).filter((a) => a !== '');
       const diffs = (s.changes ?? []).filter((c) => !c.fixable);
       const aspects = [...manualAspects, ...diffs.map((c) => `set ${c.path} to ${JSON.stringify(c.want)}`)];
       // Exists but differs in ways the API cannot fix: the step is "update it", never the "create it" step again.
@@ -331,6 +333,16 @@ export const planHashOf = (steps: PlanStep[], carried: CarriedConfirmation[] = [
 // ── Apply ─────────────────────────────────────────────────────────────────
 
 /** Signed off, and nothing in the design was changed after the latest sign-off. */
+/** A recorded pending aspect without the guided step's own title (or repeats of it) in front. */
+export function healAspect(aspect: string, title: string): string {
+  let a = aspect.trim();
+  for (;;) {
+    if (a === title) return '';
+    if (!a.startsWith(`${title}: `)) return a;
+    a = a.slice(title.length + 2).trim();
+  }
+}
+
 export function isSignedOff(bp: Blueprint): boolean {
   const signed = bp.decisions.filter((d) => d.subject.kind === 'blueprint' && d.action === 'sign-off').map((d) => d.at).sort().at(-1);
   if (!signed) return false;

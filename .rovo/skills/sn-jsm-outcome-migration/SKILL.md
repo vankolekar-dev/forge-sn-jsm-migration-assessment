@@ -43,7 +43,10 @@ You orchestrate. The toolkit decides and builds. Every write goes through the de
      `ATL_API_TOKEN`.
    - Personas use `atl-<host>-persona-<id>-email` / `-api-token`.
    - ServiceNow uses OAuth with a read-only integration user.
-6. **Change nothing outside the repo.** Never commit `out/`, snapshots or customer data. Commit or push only when
+6. **The build list is proposed, not reviewed.** `build_list` shows a first-pass JSM answer for everything else
+   ServiceNow has. Use it to discuss scope. Never build from it or call it signed off: to bring an item in, propose
+   it to the person as a new outcome or capability, which then goes through analysis and sign-off.
+7. **Change nothing outside the repo.** Never commit `out/`, snapshots or customer data. Commit or push only when
    the person asks.
 
 ## Tools
@@ -55,6 +58,8 @@ through the CLI from the repo root: `npm run jsm -- <command> … --json`. The g
 |---|---|---|---|
 | Orient | `blueprint_summary` | `npm run jsm -- summary` | no |
 | Orient | `build_status` | `npm run jsm -- status` | no |
+| Orient | `build_list` | `npm run jsm -- build-list` | no |
+| Hand off | `blueprint_handoff` | `npm run jsm -- handoff` | no |
 | Target | `blueprint_set_space` | `npm run jsm -- space` | local blueprint (sign-off lapses) |
 | Sign-off | `signoff_review` | `npm run jsm -- review` | no |
 | Sign-off | `signoff_record` | `npm run jsm -- sign-off` | local blueprint, gated |
@@ -190,6 +195,22 @@ or 5. Never "fix" drift outside the toolkit.
 4. Report pass and fail per criterion, with the evidence and the run report file. Test data is removed afterwards
    unless `keep` was set.
 5. If anything was left behind, show `CLEANUP <runId> ON <site>` and call `acceptance_cleanup` on the reply.
+
+### Optional: everything else ServiceNow has
+
+`build_list` groups every ServiceNow component the blueprint does not cover by the JSM element it would become, with
+readiness (buildable by API, guided, outside this builder, no JSM equivalent, not needed) and redesign flags.
+- Start with the summary; page into a group (`group`, `customOnly`) only when the person asks.
+- Say plainly that it is proposed and not reviewed.
+
+### Optional: hand off
+
+`blueprint_handoff` writes a brief from the current blueprint and state.
+- `audience: "agent"`: for another agent (Rovo CLI, Claude, OpenAI Codex): where things stand, the next gated
+  steps, the ground rules and how to connect this MCP server.
+- `audience: "solution-composer"`: plain-language prompts, one per capability (foundation first), for the person to
+  paste into Solution Composer in JSM. Solution Composer has no API: never claim it built anything. Afterwards run
+  `build_verify` to check the result against the design.
 
 ### Optional: work breakdown
 

@@ -9,6 +9,9 @@ import {
   renderApply, renderManual, renderPlan, renderVerify, scopeElements, strategyOf, verify, workBreakdown,
   type BuildOptions, type BuildState, type Plan, type Scope, type SiteApi,
 } from '@snjsm/builder';
+import { buildList, buildListMarkdown, type BuildListOptions } from '@snjsm/reference';
+import { cleanupPhrase, confirmPhrase, signOffPhrase, testPhrase } from './phrases';
+import { handoffBrief, type HandoffAudience } from './handoff';
 import type { Store } from './store';
 
 /**
@@ -50,10 +53,7 @@ const clip = (md: string, file?: string) => (md.length <= MAX_MARKDOWN ? md : `$
 const scopeOf = (i: ScopeInput): Scope => ({ ...(i.capabilityIds?.length ? { capabilityIds: i.capabilityIds } : {}), ...(i.elementIds?.length ? { elementIds: i.elementIds } : {}) });
 export const safeName = (s: string) => s.replace(/[^\w.@-]+/g, '_');
 export const hostOf = (site: string) => new URL(site).hostname;
-export const confirmPhrase = (planHash: string, site: string) => `APPLY ${planHash} TO ${site}`;
-export const testPhrase = (runHash: string, site: string) => `TEST ${runHash} ON ${site}`;
-export const cleanupPhrase = (runId: string, site: string) => `CLEANUP ${runId} ON ${site}`;
-export const signOffPhrase = (signHash: string, blueprintId: string) => `SIGN OFF ${signHash} FOR ${blueprintId}`;
+export { cleanupPhrase, confirmPhrase, signOffPhrase, testPhrase } from './phrases';
 
 /** Everything a sign-off approves: outcomes and their criteria, catalogue versions, and the design. Any change gives a new hash. */
 export function signOffContent(bp: Blueprint) {
@@ -565,6 +565,38 @@ export class BuildService {
     const state = site ? await this.loadState(bp, site) : undefined;
     const p = await plan({ bp, ...(state ? { state } : {}), scope: scopeOf(i) });
     return { epics: workBreakdown(bp, p) };
+  }
+
+  // ── everything else, and handoff ─────────────────────────────────────────
+
+  /** Proposed, not reviewed: a JSM answer for every ServiceNow component the blueprint does not cover. Never built from. */
+  async buildList(i: { blueprint: string; group?: string; customOnly?: boolean; includeInactive?: boolean; perGroup?: number }) {
+    const bp = await this.loadBlueprint(i.blueprint);
+    const o: BuildListOptions & { group?: string; customOnly?: boolean; perGroup?: number } = {
+      ...(i.includeInactive ? { includeInactive: true } : {}), ...(i.group ? { group: i.group } : {}),
+      ...(i.customOnly ? { customOnly: true } : {}), perGroup: i.perGroup ?? 25,
+    };
+    if (!Number.isInteger(o.perGroup) || o.perGroup! < 0 || o.perGroup! > 500) throw new Error('perGroup must be a whole number from 0 to 500');
+    return { ...buildList(bp, o), markdown: clip(buildListMarkdown(bp, o)) };
+  }
+
+  /** A brief for an AI agent with these tools, or plain-language prompts for Solution Composer. Read-only. */
+  async handoff(i: { blueprint: string; site?: string; audience: HandoffAudience }) {
+    const bp = await this.loadBlueprint(i.blueprint);
+    const site = this.siteFor(bp, i.site);
+    const state = site ? await this.loadState(bp, site) : undefined;
+    const pending = await pendingManual(bp, state, {});
+    const facts = {
+      blueprintKey: i.blueprint, ...(site ? { site } : {}), writeAllowed: site ? this.writeAllowed(site) : false,
+      signedOff: isSignedOff(bp), design: scopeElements(bp), ...(state ? { state } : {}),
+      pendingManual: pending.map((m) => ({ designId: m.designId, title: m.title })), buildList: buildList(bp),
+    };
+    return {
+      audience: i.audience, blueprintId: bp.id, site: site ?? null, signedOff: facts.signedOff,
+      design: facts.design.length, onSite: facts.design.filter((e) => state?.elements[e.id] && !['failed', 'manual-pending'].includes(state.elements[e.id]!.status)).length,
+      guidedStepsPending: pending.length, buildListProposed: facts.buildList.totals.proposed,
+      markdown: clip(handoffBrief(i.audience, bp, facts)),
+    };
   }
 
   /** Read a report or review written by this workflow (plans/, runs/, signoff/, tests/), for UIs. */
