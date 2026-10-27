@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { call, type BlueprintEntry, type JsmGaps, type JsmItem, type SnInventory, type SnItemsPage } from './api';
+import { call, type BlueprintEntry, type BuildList, type BuildListPage, type JsmGaps, type JsmItem, type Readiness, type SnInventory, type SnItemsPage } from './api';
 
 const PAGE = 200;
 
@@ -214,6 +214,111 @@ export function JsmBuildGaps({ blueprintId }: { blueprintId?: string }) {
           </tbody>
         </table>
       </div>
+      <ProposedBuildList blueprintId={blueprintId} />
+    </div>
+  );
+}
+
+const READINESS: Record<Readiness, string> = {
+  api: 'workbench can build (API)', partial: 'partly by API, rest guided', unknown: 'API not yet verified: guided for now', 'ui-only': 'guided steps in the JSM UI',
+  'outside-builder': 'outside this builder', 'no-equivalent': 'no JSM equivalent', 'not-needed': 'not needed in JSM',
+};
+const READINESS_CLASS: Partial<Record<Readiness, string>> = { api: 'lozenge ok', partial: 'lozenge ok', 'ui-only': 'lozenge warn', unknown: 'lozenge warn', 'no-equivalent': 'lozenge bad' };
+
+/** Everything else ServiceNow has: a first-pass JSM answer per component. Proposed, not reviewed, never built from. */
+function ProposedBuildList({ blueprintId }: { blueprintId: string }) {
+  const [includeInactive, setIncludeInactive] = useState(false);
+  const [data, setData] = useState<BuildList>();
+  const [error, setError] = useState<string>();
+  const [group, setGroup] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    setData(undefined); setError(undefined);
+    call<BuildList>('buildList', { blueprintId, ...(includeInactive ? { includeInactive } : {}) }).then((d) => { if (live) setData(d); }).catch((e: Error) => { if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [blueprintId, includeInactive]);
+  useEffect(() => { setGroup(undefined); }, [blueprintId]);
+  if (error) return <div className="error">{error}</div>;
+  if (!data) return <p className="muted">Loading the build list…</p>;
+  const t = data.totals;
+  const current = data.groups.find((g) => g.id === group);
+  return (
+    <div className="card">
+      <h3>Build list for everything else in ServiceNow <span className="lozenge warn">proposed, not reviewed</span></h3>
+      <p className="muted">
+        A first-pass JSM answer for each ServiceNow component no capability covers yet. Nobody has checked these mappings, they are not signed off and the workbench never builds from this list:
+        bring an item into a capability to build it.
+      </p>
+      <div className="row">
+        <Stat n={t.components} label="ServiceNow components" />
+        <Stat n={t.covered} label="covered by the blueprint" />
+        {t.outOfScope > 0 && <Stat n={t.outOfScope} label="out of scope" />}
+        {t.inactive > 0 && <Stat n={t.inactive} label="inactive, left out" />}
+        <Stat n={t.proposed} label="proposed here" />
+        <Stat n={t.byReadiness.api + t.byReadiness.partial} label="buildable by API" />
+        <Stat n={t.byReadiness.unknown + t.byReadiness['ui-only']} label="guided for now" />
+        <Stat n={t.byReadiness['outside-builder'] + t.byReadiness['no-equivalent']} label="outside builder or no equivalent" />
+      </div>
+      <label className="row"><input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} /> include inactive components</label>
+      <div className="tiles">
+        {data.groups.map((g) => (
+          <button key={g.id} className={g.id === group ? 'tile active' : 'tile'} onClick={() => setGroup(g.id === group ? undefined : g.id)}>
+            <div className="tile-n">{g.count}</div>
+            <div>{g.label}</div>
+            <div className="muted">{READINESS[g.readiness]}{g.redesign ? ` · ${g.redesign} redesign` : ''}</div>
+          </button>
+        ))}
+      </div>
+      {current && <BuildListItems key={`${blueprintId}:${current.id}:${includeInactive}`} blueprintId={blueprintId} group={current} includeInactive={includeInactive} />}
+    </div>
+  );
+}
+
+function BuildListItems({ blueprintId, group, includeInactive }: { blueprintId: string; group: { id: string; label: string; byKind: Record<string, number> }; includeInactive: boolean }) {
+  const [query, setQuery] = useState('');
+  const [customOnly, setCustomOnly] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<BuildListPage>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => {
+      call<BuildListPage>('buildListItems', { blueprintId, group: group.id, offset, limit: PAGE, ...(query.trim() ? { query } : {}), ...(customOnly ? { customOnly } : {}), ...(includeInactive ? { includeInactive } : {}) })
+        .then((p) => { if (live) { setPage(p); setError(undefined); } }).catch((e: Error) => { if (live) setError(e.message); });
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [blueprintId, group.id, query, customOnly, includeInactive, offset]);
+  return (
+    <div>
+      <h4>{group.label}</h4>
+      <p className="muted">{Object.entries(group.byKind).map(([k, n]) => `${n} ${k}`).join(' · ')}</p>
+      <div className="row">
+        <input className="input" placeholder="Filter by name, purpose, table or proposal" value={query} onChange={(e) => { setQuery(e.target.value); setOffset(0); }} />
+        <label className="row"><input type="checkbox" checked={customOnly} onChange={(e) => { setCustomOnly(e.target.checked); setOffset(0); }} /> customer-built only</label>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {page && (
+        <>
+          <table className="grid">
+            <thead><tr><th>ServiceNow</th><th>Type</th><th>Proposed in JSM</th><th>How it could be built</th><th /></tr></thead>
+            <tbody>
+              {page.items.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.name}{i.intent && <div className="muted">{i.intent}</div>}</td>
+                  <td className="muted">{i.kind}{i.table ? ` · ${i.table}` : ''}</td>
+                  <td>{i.jsm}{i.note && <div className="muted">{i.note}</div>}</td>
+                  <td><span className={READINESS_CLASS[i.readiness] ?? 'lozenge'}>{READINESS[i.readiness]}</span></td>
+                  <td>
+                    {i.custom && <span className="lozenge warn">custom</span>} {i.redesign && <span className="lozenge">redesign</span>} {i.active === false && <span className="lozenge">inactive</span>}{' '}
+                    {i.risk && <span className={i.risk === 'high' ? 'lozenge bad' : 'lozenge'}>{i.risk} risk</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager total={page.total} offset={page.offset} size={PAGE} onOffset={setOffset} />
+        </>
+      )}
     </div>
   );
 }

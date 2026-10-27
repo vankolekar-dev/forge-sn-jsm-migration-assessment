@@ -65,3 +65,17 @@ export interface JsmGaps {
   gaps: { capability: string; description: string; resolution: string; outcome?: string; evidence: string[] }[];
   outcomesWithoutElement: { id: string; statement: string; status: string }[];
 }
+
+// Build list for everything ServiceNow has (mirror @snjsm/reference buildlist.ts). Proposed, not reviewed.
+export type Readiness = 'api' | 'partial' | 'unknown' | 'ui-only' | 'outside-builder' | 'no-equivalent' | 'not-needed';
+export interface BuildListItem {
+  id: string; kind: string; name: string; table?: string; intent?: string; custom?: boolean; active?: boolean;
+  usage?: { count: number; periodDays?: number }; risk?: string; target?: string; jsm: string; readiness: Readiness; redesign: boolean; note?: string;
+}
+export interface BuildListGroup { id: string; label: string; target?: string; readiness: Readiness; count: number; custom: number; redesign: number; byKind: Record<string, number> }
+export interface BuildList {
+  blueprintId: string; customer: string; status: 'proposed, not reviewed';
+  totals: { components: number; covered: number; outOfScope: number; inactive: number; proposed: number; byReadiness: Record<Readiness, number> };
+  groups: BuildListGroup[];
+}
+export interface BuildListPage { group?: string; total: number; offset: number; items: BuildListItem[] }

@@ -108,6 +108,7 @@ npm run jsm -- manual    --blueprint acme/blueprint.json --site acme-sandbox.atl
 npm run jsm -- confirm   --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --id ref.reports-to --remote-id 42
 npm run jsm -- verify    --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # read-only
 npm run jsm -- status | breakdown …                                          # state; one Jira epic per capability
+npm run jsm -- build-list --blueprint fixture/blueprint.json [--group sla] [--custom] [--inactive]   # proposed JSM answer for every ServiceNow component no capability covers yet (not reviewed; never built from)
 npm run jsm -- test-plan --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net   # offline acceptance plan → runHash
 npm run jsm -- test      --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --hash <runHash>   # [--keep]
 npm run jsm -- test-cleanup --blueprint acme/blueprint.json --site acme-sandbox.atlassian.net --run <runId>

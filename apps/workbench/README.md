@@ -47,6 +47,12 @@ Two pages, for any blueprint (uploaded or collected), computed from the blueprin
   components it replaces. Below: the fit gaps per capability with their resolution, in-scope outcomes no element
   delivers, and fit to the Atlassian standard per capability. What already exists on the site is the Build tab's
   dry-run.
+- **Build list for everything else in ServiceNow** (bottom of JSM build & gaps, labelled *proposed, not
+  reviewed*): a first-pass JSM answer for every ServiceNow component that no capability, outcome, gap or design
+  element covers yet, grouped by the JSM element it would become, with readiness from the API coverage matrix
+  (buildable by API, guided, outside this builder, no JSM equivalent, not needed) and redesign flags for script
+  logic. Inactive components are left out unless you include them. Nothing is built from this list: bring an item
+  into a capability to build it. The same list is `npm run jsm -- build-list` for agents.
 
 ## Connect to ServiceNow (instead of uploading)
 

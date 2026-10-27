@@ -335,6 +335,20 @@ describe('blueprint views', () => {
     await expect(t.wb.inventory(t.as(t.outsider), { blueprintId: id })).rejects.toThrow(/do not have access/);
     await expect(t.wb.jsmGaps(t.as(t.admin), { blueprintId: 'nope' })).rejects.toThrow(/no blueprint/);
   });
+
+  it('serves the proposed build list to signers only, with validated filters', async () => {
+    const t = setup();
+    await t.wb.saveSettings(t.as(t.admin), { signers: ['acc-signer'] });
+    await t.upload(t.admin, base);
+    const id = base.id;
+    const l = await t.wb.buildList(t.as(t.signer), { blueprintId: id });
+    expect(l).toMatchObject({ status: 'proposed, not reviewed', totals: { components: base.evidence.length } });
+    const page = await t.wb.buildListItems(t.as(t.signer), { blueprintId: id, limit: 5 });
+    expect(page.total).toBe(l.totals.proposed);
+    await expect(t.wb.buildList(t.as(t.outsider), { blueprintId: id })).rejects.toThrow(/do not have access/);
+    await expect(t.wb.buildListItems(t.as(t.signer), { blueprintId: id, readiness: ['maybe'] })).rejects.toThrow();
+    await expect(t.wb.buildListItems(t.as(t.signer), { blueprintId: id, limit: 501 })).rejects.toThrow();
+  });
 });
 
 describe('ServiceNow demo connection (basic auth) and request log', () => {
