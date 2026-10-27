@@ -260,6 +260,10 @@ const LIMIT_RETRIES = 6;
 const LIMIT_DELAY_S = 300;
 const CURSOR_EVERY_MS = 15_000;
 
+/** Parsed blueprints of this warm function instance (most recent last); see Workbench.readBlueprint. */
+const BLUEPRINT_CACHE = new Map<string, { stamp: string; bp: Blueprint }>();
+const BLUEPRINT_CACHE_SIZE = 3;
+
 export class Workbench {
   readonly store: KvStore;
 
@@ -438,44 +442,58 @@ export class Workbench {
     return { summary, status, jobs: await this.jobs(p.blueprintId) };
   }
 
-  private async readBlueprint(blueprintId: string): Promise<Blueprint> {
+  /**
+   * The blueprint views run on every click, so a warm function keeps the last blueprints it parsed and only checks
+   * the stored version (one small read) instead of reading every chunk again. Keyed by site and stored version, so a
+   * replaced blueprint or another installation never sees a stale copy. Callers check access before reading.
+   */
+  private async readBlueprint(blueprintId: string, cloudId: string): Promise<Blueprint> {
     const key = bpKey(blueprintId);
+    const stamp = await this.store.stamp(key);
+    if (stamp === undefined) throw new Error(`no blueprint ${blueprintId} in the workbench`);
+    const cacheKey = `${cloudId}:${key}`;
+    const hit = BLUEPRINT_CACHE.get(cacheKey);
+    if (hit?.stamp === stamp) return hit.bp;
     const text = await this.store.read(key);
     if (text === undefined) throw new Error(`no blueprint ${blueprintId} in the workbench`);
-    return parseBlueprint(text, key);
+    const bp = parseBlueprint(text, key);
+    BLUEPRINT_CACHE.delete(cacheKey);
+    BLUEPRINT_CACHE.set(cacheKey, { stamp, bp });
+    while (BLUEPRINT_CACHE.size > BLUEPRINT_CACHE_SIZE) BLUEPRINT_CACHE.delete(BLUEPRINT_CACHE.keys().next().value!);
+    return bp;
   }
 
   /** What the analysis found in ServiceNow, by component category. */
   async inventory(caller: Caller, payload: unknown) {
     const p = parse(P.blueprint, payload);
     await this.need(caller, 'signer');
-    return snInventory(await this.readBlueprint(p.blueprintId));
+    return snInventory(await this.readBlueprint(p.blueprintId, caller.cloudId));
   }
 
   async inventoryItems(caller: Caller, payload: unknown) {
     const p = parse(P.inventoryItems, payload);
     await this.need(caller, 'signer');
-    return snItems(await this.readBlueprint(p.blueprintId), p);
+    return snItems(await this.readBlueprint(p.blueprintId, caller.cloudId), p);
   }
 
   /** What JSM needs: every design element by category, how it gets built, and the fit gaps. Blueprint only. */
   async jsmGaps(caller: Caller, payload: unknown) {
     const p = parse(P.blueprint, payload);
     await this.need(caller, 'signer');
-    return jsmGaps(await this.readBlueprint(p.blueprintId));
+    return jsmGaps(await this.readBlueprint(p.blueprintId, caller.cloudId));
   }
 
   /** Proposed, not reviewed: a JSM answer for every ServiceNow component the blueprint does not cover yet. */
   async buildList(caller: Caller, payload: unknown) {
     const p = parse(P.buildList, payload);
     await this.need(caller, 'signer');
-    return buildList(await this.readBlueprint(p.blueprintId), p);
+    return buildList(await this.readBlueprint(p.blueprintId, caller.cloudId), p);
   }
 
   async buildListItems(caller: Caller, payload: unknown) {
     const p = parse(P.buildListItems, payload);
     await this.need(caller, 'signer');
-    return buildListItems(await this.readBlueprint(p.blueprintId), p);
+    return buildListItems(await this.readBlueprint(p.blueprintId, caller.cloudId), p);
   }
 
   async setSpace(caller: Caller, payload: unknown) {

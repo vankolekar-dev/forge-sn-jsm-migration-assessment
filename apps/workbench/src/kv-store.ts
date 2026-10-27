@@ -1,3 +1,4 @@
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { checkKey, type Store } from '@snjsm/workflow';
 
 /**
@@ -37,12 +38,16 @@ export function decodeKey(enc: string): string {
   return enc.replace(/#([0-9a-f]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
 }
 
-interface Head { v: string; n: number; len: number; at: string; inline?: string }
+/** z: the stored payload is gzip + base64 of the value, zlen characters long (len is the value's length). */
+interface Head { v: string; n: number; len: number; at: string; inline?: string; z?: 1; zlen?: number }
 interface LockRecord { owner: string; at: string; until: string }
 
 /**
  * Store on Forge KVS.
  *  - f:<key>          head: version, chunk count, length (small values are inline in the head)
+ *                     Values too big to be inline are stored gzip + base64 (z in the head): blueprints and state files
+ *                     shrink about tenfold, so a read costs a few chunks instead of dozens. Older uncompressed values
+ *                     still read as before.
  *  - c:<key>:<v>:<i>  chunk i of version v
  *  - l:<key>          lock, created atomically (fail if it exists) with a TTL so a timed-out function cannot wedge it
  * A write puts the new version's chunks first and then swaps the head, so readers see the old value or the new one,
@@ -68,17 +73,31 @@ export class KvStore implements Store {
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = await this.kv.get<Head>(`f:${e}`);
       if (!head) return undefined;
-      if (head.inline !== undefined) return head.inline;
+      if (head.inline !== undefined) return this.decode(key, head, head.inline);
       const keys = Array.from({ length: head.n }, (_, i) => `c:${e}:${head.v}:${i}`);
       const got = await this.kv.getMany<string>(keys);
-      if (keys.every((k) => got.has(k))) {
-        const text = keys.map((k) => got.get(k)!).join('');
-        if (text.length !== head.len) throw new Error(`stored value ${key} is corrupt (length ${text.length}, expected ${head.len})`);
-        return text;
-      }
+      if (keys.every((k) => got.has(k))) return this.decode(key, head, keys.map((k) => got.get(k)!).join(''));
       // A concurrent write swapped the head and removed these chunks: read the new head.
     }
     throw new Error(`stored value ${key} changed while it was read; try again`);
+  }
+
+  private decode(key: string, head: Head, payload: string): string {
+    const corrupt = (got: number, want: number) => new Error(`stored value ${key} is corrupt (length ${got}, expected ${want})`);
+    if (!head.z) {
+      if (payload.length !== head.len) throw corrupt(payload.length, head.len);
+      return payload;
+    }
+    if (payload.length !== head.zlen) throw corrupt(payload.length, head.zlen ?? 0);
+    const text = gunzipSync(Buffer.from(payload, 'base64')).toString('utf8');
+    if (text.length !== head.len) throw corrupt(text.length, head.len);
+    return text;
+  }
+
+  /** The stored version of a value (one small read), to tell whether a copy read earlier is still current. */
+  async stamp(key: string): Promise<string | undefined> {
+    const head = await this.kv.get<Head>(`f:${this.enc(key)}`);
+    return head ? `${head.v}:${head.len}` : undefined;
   }
 
   async write(key: string, text: string): Promise<void> {
@@ -88,8 +107,11 @@ export class KvStore implements Store {
     if (text.length <= CHUNK_CHARS && bytes({ ...head, inline: text }) <= MAX_VALUE_BYTES) {
       head.inline = text;
     } else {
+      const packed = gzipSync(Buffer.from(text, 'utf8')).toString('base64');
+      head.z = 1;
+      head.zlen = packed.length;
       const chunks: string[] = [];
-      for (let i = 0; i < text.length; i += CHUNK_CHARS) chunks.push(text.slice(i, i + CHUNK_CHARS));
+      for (let i = 0; i < packed.length; i += CHUNK_CHARS) chunks.push(packed.slice(i, i + CHUNK_CHARS));
       for (const c of chunks) if (bytes(c) > MAX_VALUE_BYTES) throw new Error(`value ${key} has a chunk over the storage limit`);
       head.n = chunks.length;
       for (let i = 0; i < chunks.length; i += 20) {

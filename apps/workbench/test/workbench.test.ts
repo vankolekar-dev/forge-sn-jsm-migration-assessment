@@ -336,6 +336,24 @@ describe('blueprint views', () => {
     await expect(t.wb.jsmGaps(t.as(t.admin), { blueprintId: 'nope' })).rejects.toThrow(/no blueprint/);
   });
 
+  it('reads a blueprint once per version: repeat views cost one small read, a replaced blueprint is never stale', async () => {
+    const t = setup();
+    await t.wb.saveSettings(t.as(t.admin), { signers: ['acc-signer'] });
+    await t.upload(t.admin, base);
+    const id = base.id;
+    await t.wb.inventory(t.as(t.signer), { blueprintId: id });
+    const before = t.kv.ops;
+    await t.wb.inventoryItems(t.as(t.signer), { blueprintId: id, category: 'catalog', limit: 5 });
+    await t.wb.buildList(t.as(t.signer), { blueprintId: id });
+    // Access checks read settings; the blueprint itself is only its head (version) each time.
+    const perView = (t.kv.ops - before) / 2;
+    expect(perView).toBeLessThan(6);
+
+    const renamed = { ...base, customer: { ...base.customer, name: 'Renamed Co' } };
+    await t.upload(t.admin, renamed, true);
+    expect((await t.wb.inventory(t.as(t.signer), { blueprintId: id })).customer).toBe('Renamed Co');
+  });
+
   it('serves the proposed build list to signers only, with validated filters', async () => {
     const t = setup();
     await t.wb.saveSettings(t.as(t.admin), { signers: ['acc-signer'] });
